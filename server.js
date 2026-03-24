@@ -143,7 +143,7 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       if (!Array.isArray(matches) || matches.length === 0) throw new Error("Invalid format");
     } catch {
       console.error("Parse error:", fullText);
-      return res.end(JSON.stringify({ error: "Could not parse results. Please try again." }));
+      return res.end(JSON.stringify({ error: "Parse error. Raw: " + fullText.slice(0, 500) }));
     }
 
     res.end(JSON.stringify({ matches }));
