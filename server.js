@@ -36,7 +36,7 @@ function callClaude(prompt) {
           const parsed = JSON.parse(data);
           resolve(parsed.content[0].text.trim());
         } catch (e) {
-          reject(new Error("Failed to parse Claude response: " + data.slice(0, 200)));
+          reject(new Error("Failed to parse Claude response"));
         }
       });
       res.on("error", reject);
@@ -120,23 +120,8 @@ Respond ONLY with a valid JSON array, no markdown:
 
 Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real venues inside the neighbourhood, lat/lng = neighbourhood centre.`;
 
-  // SSE headers — keeps Cloudflare connection alive via pings
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-
-  // Ping every 5s to prevent Cloudflare inactivity timeout
-  const heartbeat = setInterval(() => {
-    try { res.write(": ping\n\n"); } catch {}
-  }, 5000);
-
   try {
-    // Simple non-streaming Claude call — no SSE parsing complexity
     const text = await callClaude(prompt);
-
-    clearInterval(heartbeat);
-
     const cleaned = text.replace(/```json|```/g, "").trim();
     const matches = JSON.parse(cleaned);
 
@@ -144,15 +129,11 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       throw new Error("Invalid response format");
     }
 
-    // Send result as single SSE event
-    res.write(`data: ${JSON.stringify({ matches })}\n\n`);
-    res.end();
+    return res.json({ matches });
 
   } catch (err) {
-    clearInterval(heartbeat);
     console.error("Error:", err.message);
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-    res.end();
+    return res.status(500).json({ error: err.message });
   }
 });
 
