@@ -82,10 +82,23 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
     const requestBody = JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 2500,
+      stream: true,
       messages: [{ role: "user", content: prompt }],
     });
 
-    const claudeResponse = await new Promise((resolve, reject) => {
+    // Keep connection alive with periodic heartbeats
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    // Send a heartbeat every 5 seconds to prevent inactivity timeout
+    const heartbeat = setInterval(() => {
+      try { res.write(" "); } catch {}
+    }, 5000);
+
+    let fullText = "";
+
+    await new Promise((resolve, reject) => {
       const request = https.request({
         hostname: "api.anthropic.com",
         path: "/v1/messages",
@@ -97,38 +110,51 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
           "Content-Length": Buffer.byteLength(requestBody),
         },
       }, (response) => {
-        let data = "";
-        response.on("data", chunk => data += chunk);
-        response.on("end", () => resolve({ status: response.statusCode, body: data }));
+        response.on("data", (chunk) => {
+          const lines = chunk.toString().split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6).trim();
+              if (data === "[DONE]") return;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+                  fullText += parsed.delta.text;
+                }
+              } catch {}
+            }
+          }
+        });
+        response.on("end", resolve);
+        response.on("error", reject);
       });
       request.on("error", reject);
       request.write(requestBody);
       request.end();
     });
 
-    if (claudeResponse.status !== 200) {
-      console.error("Claude API error:", claudeResponse.status, claudeResponse.body);
-      return res.status(502).json({ error: "Claude API error: " + claudeResponse.status });
-    }
+    clearInterval(heartbeat);
 
-    const data = JSON.parse(claudeResponse.body);
-    const text = data.content[0].text.trim();
-
+    // Parse the complete response
     let matches;
     try {
-      const cleaned = text.replace(/```json|```/g, "").trim();
+      const cleaned = fullText.replace(/```json|```/g, "").trim();
       matches = JSON.parse(cleaned);
       if (!Array.isArray(matches) || matches.length === 0) throw new Error("Invalid format");
     } catch {
-      console.error("Parse error:", text);
-      return res.status(502).json({ error: "Could not parse results. Please try again." });
+      console.error("Parse error:", fullText);
+      return res.end(JSON.stringify({ error: "Could not parse results. Please try again." }));
     }
 
-    return res.status(200).json({ matches });
+    res.end(JSON.stringify({ matches }));
 
   } catch (err) {
     console.error("Server error:", err);
-    return res.status(500).json({ error: "Something went wrong. Please try again." });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Something went wrong. Please try again." });
+    } else {
+      res.end(JSON.stringify({ error: "Something went wrong. Please try again." }));
+    }
   }
 });
 
