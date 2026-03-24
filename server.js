@@ -6,6 +6,48 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function callClaude(prompt) {
+  return new Promise((resolve, reject) => {
+    const requestBody = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2500,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const req = https.request({
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Length": Buffer.byteLength(requestBody),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        if (res.statusCode !== 200) {
+          reject(new Error("Claude API error: " + res.statusCode + " " + data));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.content[0].text.trim());
+        } catch (e) {
+          reject(new Error("Failed to parse Claude response: " + data.slice(0, 200)));
+        }
+      });
+      res.on("error", reject);
+    });
+
+    req.on("error", reject);
+    req.write(requestBody);
+    req.end();
+  });
+}
+
 app.post("/api/match", async (req, res) => {
   const { homeCity, homeHood, destCity, vibes, intent } = req.body;
 
@@ -78,85 +120,38 @@ Respond ONLY with a valid JSON array, no markdown:
 
 Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real venues inside the neighbourhood, lat/lng = neighbourhood centre.`;
 
-  // Use SSE to keep connection alive
+  // SSE headers — keeps Cloudflare connection alive via pings
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  // Send SSE comment ping every 5s — keeps Cloudflare connection alive without corrupting data
+  // Ping every 5s to prevent Cloudflare inactivity timeout
   const heartbeat = setInterval(() => {
     try { res.write(": ping\n\n"); } catch {}
   }, 5000);
 
   try {
-    const requestBody = JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2500,
-      stream: true,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    let fullText = "";
-
-    await new Promise((resolve, reject) => {
-      const request = https.request({
-        hostname: "api.anthropic.com",
-        path: "/v1/messages",
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": process.env.CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Length": Buffer.byteLength(requestBody),
-        },
-      }, (response) => {
-        response.on("data", (chunk) => {
-          const lines = chunk.toString().split("\n");
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") return;
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                  fullText += parsed.delta.text;
-                }
-              } catch {}
-            }
-          }
-        });
-        response.on("end", resolve);
-        response.on("error", reject);
-      });
-      request.on("error", reject);
-      request.write(requestBody);
-      request.end();
-    });
+    // Simple non-streaming Claude call — no SSE parsing complexity
+    const text = await callClaude(prompt);
 
     clearInterval(heartbeat);
 
-    // Parse complete response
-    let matches;
-    try {
-      const cleaned = fullText.replace(/```json|```/g, "").trim();
-      matches = JSON.parse(cleaned);
-      if (!Array.isArray(matches) || matches.length === 0) throw new Error("Invalid format");
-    } catch {
-      console.error("Parse error:", fullText);
-      res.write(`data: ${JSON.stringify({ error: "Could not parse results. Please try again." })}\n\n`);
-      res.end();
-      return;
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const matches = JSON.parse(cleaned);
+
+    if (!Array.isArray(matches) || matches.length === 0) {
+      throw new Error("Invalid response format");
     }
 
-    // Send result as SSE data event then close
+    // Send result as single SSE event
     res.write(`data: ${JSON.stringify({ matches })}\n\n`);
     res.end();
 
   } catch (err) {
     clearInterval(heartbeat);
-    console.error("Server error:", err);
-    res.write(`data: ${JSON.stringify({ error: "Something went wrong. Please try again." })}\n\n`);
+    console.error("Error:", err.message);
+    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
     res.end();
   }
 });
