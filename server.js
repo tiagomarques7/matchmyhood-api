@@ -86,15 +86,9 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       messages: [{ role: "user", content: prompt }],
     });
 
-    // Keep connection alive with periodic heartbeats
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("X-Accel-Buffering", "no");
-
-    // Send a heartbeat every 5 seconds to prevent inactivity timeout
-    const heartbeat = setInterval(() => {
-      try { res.write(" "); } catch {}
-    }, 5000);
+    // Keep connection alive without writing to response body
+    req.socket.setTimeout(0);
+    res.socket.setTimeout(0);
 
     let fullText = "";
 
@@ -133,8 +127,6 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       request.end();
     });
 
-    clearInterval(heartbeat);
-
     // Parse the complete response
     let matches;
     try {
@@ -143,7 +135,7 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       if (!Array.isArray(matches) || matches.length === 0) throw new Error("Invalid format");
     } catch {
       console.error("Parse error:", fullText);
-      return res.end(JSON.stringify({ error: "Parse error. Raw: " + fullText.slice(0, 500) }));
+      return res.end(JSON.stringify({ error: "Could not parse results. Please try again." }));
     }
 
     res.end(JSON.stringify({ matches }));
