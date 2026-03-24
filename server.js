@@ -4,13 +4,16 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
+const FOURSQUARE_KEY = process.env.FOURSQUARE_KEY || "244GKZ3SYN0QA4CMYR4VXURO3PLM00MUWHAXLJUV04UE05T1";
+
+// Call Claude API
 function callClaude(prompt) {
   return new Promise((resolve, reject) => {
     const requestBody = JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 2500,
+      max_tokens: 4000,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -48,6 +51,96 @@ function callClaude(prompt) {
   });
 }
 
+// Search Foursquare for venues near a location
+function searchFoursquare(lat, lng, query, categories, limit = 3) {
+  return new Promise((resolve) => {
+    const params = new URLSearchParams({
+      ll: `${lat},${lng}`,
+      query: query,
+      categories: categories,
+      radius: 600, // 600m radius — keeps it within the neighbourhood
+      limit: limit,
+      sort: "RELEVANCE",
+      fields: "name,location,rating,categories,website"
+    });
+
+    const req = https.request({
+      hostname: "api.foursquare.com",
+      path: `/v3/places/search?${params.toString()}`,
+      method: "GET",
+      headers: {
+        "Authorization": FOURSQUARE_KEY,
+        "Accept": "application/json",
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.results || []);
+        } catch {
+          resolve([]);
+        }
+      });
+      res.on("error", () => resolve([]));
+    });
+
+    req.on("error", () => resolve([]));
+    req.end();
+  });
+}
+
+// Format Foursquare venue into our format
+function formatVenue(venue, city) {
+  const name = venue.name || "Unknown";
+  const address = venue.location?.formatted_address || venue.location?.address || "";
+  const rating = venue.rating ? ` · ${venue.rating}/10` : "";
+  const description = address ? `${address}${rating}` : `Local favourite${rating}`;
+  return {
+    name,
+    description,
+    googleMapsQuery: `${name} ${city}`
+  };
+}
+
+// Enrich neighbourhood matches with real Foursquare venues
+async function enrichWithFoursquare(matches, destCity) {
+  const enriched = await Promise.all(matches.map(async (match) => {
+    if (!match.lat || !match.lng) return match;
+
+    try {
+      // Get restaurants (category 13000 = Food)
+      const restaurants = await searchFoursquare(
+        match.lat, match.lng,
+        "restaurant", "13000", 3
+      );
+
+      // Get bars and wine bars (category 13003 = Bar, 13062 = Wine Bar)
+      const bars = await searchFoursquare(
+        match.lat, match.lng,
+        "wine bar", "13003,13062", 3
+      );
+
+      // Only replace if Foursquare returned results
+      if (restaurants.length > 0) {
+        match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity));
+      }
+      if (bars.length > 0) {
+        match.top3WineBars = bars.map(v => formatVenue(v, destCity));
+      }
+
+    } catch (err) {
+      console.error("Foursquare error for", match.name, err.message);
+      // Keep Claude's results if Foursquare fails
+    }
+
+    return match;
+  }));
+
+  return enriched;
+}
+
 app.post("/api/match", async (req, res) => {
   const { homeCity, homeHood, destCity, vibes, intent } = req.body;
 
@@ -80,9 +173,8 @@ Find the TOP 3 matching neighbourhoods in ${safedestCity} based on character, en
 
 CRITICAL RULES:
 - Neighbourhoods must genuinely exist in ${safedestCity}
-- Every restaurant and bar MUST be physically inside that specific neighbourhood — not elsewhere in the city. If unsure, omit it. Accuracy over completeness.
 - Match character genuinely — gritty creative = gritty creative, not polished riverside
-- lat/lng must be the neighbourhood centre coordinates, not the city centre
+- lat/lng must be the EXACT neighbourhood centre coordinates, not the city centre — this is used to find real venues nearby
 
 Respond ONLY with a valid JSON array, no markdown:
 [
@@ -118,16 +210,20 @@ Respond ONLY with a valid JSON array, no markdown:
   }
 ]
 
-Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real venues inside the neighbourhood, lat/lng = neighbourhood centre.`;
+Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, lat/lng = exact neighbourhood centre.`;
 
   try {
+    // Step 1: Get neighbourhood matches from Claude
     const text = await callClaude(prompt);
     const cleaned = text.replace(/```json|```/g, "").trim();
-    const matches = JSON.parse(cleaned);
+    let matches = JSON.parse(cleaned);
 
     if (!Array.isArray(matches) || matches.length === 0) {
       throw new Error("Invalid response format");
     }
+
+    // Step 2: Enrich with real Foursquare venue data
+    matches = await enrichWithFoursquare(matches, destCity);
 
     return res.json({ matches });
 
