@@ -78,6 +78,17 @@ Respond ONLY with a valid JSON array, no markdown:
 
 Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real venues inside the neighbourhood, lat/lng = neighbourhood centre.`;
 
+  // Use SSE to keep connection alive
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  // Send SSE comment ping every 5s — keeps Cloudflare connection alive without corrupting data
+  const heartbeat = setInterval(() => {
+    try { res.write(": ping\n\n"); } catch {}
+  }, 5000);
+
   try {
     const requestBody = JSON.stringify({
       model: "claude-sonnet-4-6",
@@ -85,10 +96,6 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       stream: true,
       messages: [{ role: "user", content: prompt }],
     });
-
-    // Keep connection alive without writing to response body
-    req.socket.setTimeout(0);
-    res.socket.setTimeout(0);
 
     let fullText = "";
 
@@ -127,7 +134,9 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       request.end();
     });
 
-    // Parse the complete response
+    clearInterval(heartbeat);
+
+    // Parse complete response
     let matches;
     try {
       const cleaned = fullText.replace(/```json|```/g, "").trim();
@@ -135,18 +144,20 @@ Rules: 3 results, descending scores (88-96%, 82-91%, 78-88%), JSON only, real ve
       if (!Array.isArray(matches) || matches.length === 0) throw new Error("Invalid format");
     } catch {
       console.error("Parse error:", fullText);
-      return res.end(JSON.stringify({ error: "Could not parse results. Please try again." }));
+      res.write(`data: ${JSON.stringify({ error: "Could not parse results. Please try again." })}\n\n`);
+      res.end();
+      return;
     }
 
-    res.end(JSON.stringify({ matches }));
+    // Send result as SSE data event then close
+    res.write(`data: ${JSON.stringify({ matches })}\n\n`);
+    res.end();
 
   } catch (err) {
+    clearInterval(heartbeat);
     console.error("Server error:", err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Something went wrong. Please try again." });
-    } else {
-      res.end(JSON.stringify({ error: "Something went wrong. Please try again." }));
-    }
+    res.write(`data: ${JSON.stringify({ error: "Something went wrong. Please try again." })}\n\n`);
+    res.end();
   }
 });
 
