@@ -372,6 +372,8 @@ Respond ONLY with a valid JSON array, no markdown:
 ]
 
 Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact neighbourhood centre.`;
+
+  } else {
     return `You are MatchMyHood, an expert neighbourhood matching tool for travellers.
 
 A person loves "${safehomeHood}" in ${safehomeCity}. They are VISITING ${safedestCity} as a traveller.${vibeContext}
