@@ -93,10 +93,13 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
+// Global throttle — minimum 30s between Overpass calls from this server
+let _lastOverpassCall = 0;
+
 function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
 
     // Build union of all nwr (node/way/relation) queries
@@ -133,6 +136,13 @@ function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
+    // Throttle: wait until 30s have passed since last Overpass call
+    const now = Date.now();
+    const gap = Math.max(0, (_lastOverpassCall + 30000) - now);
+    if (gap > 0) console.log(`Overpass throttle: waiting ${Math.round(gap/1000)}s`);
+    await new Promise(r => setTimeout(r, gap));
+    _lastOverpassCall = Date.now();
+
     const req = https.request({
       hostname: "overpass-api.de",
       path: "/api/interpreter",
@@ -145,35 +155,16 @@ function fetchAllAmenities(lat, lng, city) {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
-        // Overpass returns HTML when rate-limited — retry once after 15s
         if (data.trimStart().startsWith("<")) {
-          console.error("Overpass rate-limited — retrying in 15s");
-          setTimeout(() => {
-            const req2 = https.request({
-              hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
-            }, (res2) => {
-              let data2 = "";
-              res2.on("data", c => data2 += c);
-              res2.on("end", () => {
-                if (data2.trimStart().startsWith("<")) { console.error("Overpass still rate-limited after retry"); resolve(empty); return; }
-                try { processOverpassData(data2); } catch(e) { console.error("Retry parse error:", e.message); resolve(empty); }
-              });
-              res2.on("error", () => resolve(empty));
-            });
-            req2.on("error", () => resolve(empty));
-            req2.write(body); req2.end();
-          }, 15000);
+          console.error("Overpass returned HTML despite throttle");
+          resolve(empty);
           return;
         }
-        try { processOverpassData(data); } catch(e) { console.error("Overpass batch parse error:", e.message, data?.slice(0,120)); resolve(empty); }
-
-        function processOverpassData(data) {
+        try {
           const parsed = JSON.parse(data);
           if (parsed.remark) console.error("Overpass remark:", parsed.remark);
           const allEls = parsed.elements || [];
           if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
-          // Deduplicate by type+id (nwr can return same place as way AND relation)
           const seen = new Set();
           const els = allEls.filter(e => {
             const key = `${e.type}:${e.id}`;
@@ -218,6 +209,9 @@ function fetchAllAmenities(lat, lng, city) {
           const gymCoords = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
 
           resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords, supermarketCoords, gymCoords });
+        } catch (e) {
+          console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
+          resolve(empty);
         }
       });
       res.on("error", () => resolve(empty));
