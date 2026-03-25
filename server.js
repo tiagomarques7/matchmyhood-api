@@ -92,12 +92,12 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 }
 
 // ── OVERPASS API (OpenStreetMap) — transport & amenities ───────────────────
-function queryOverpass(lat, lng, radius, amenityType) {
+function queryOverpass(lat, lng, radius, key, value) {
   return new Promise((resolve) => {
-    const query = `[out:json][timeout:10];
+    const query = `[out:json][timeout:15];
 (
-  node["${amenityType}"](around:${radius},${lat},${lng});
-  way["${amenityType}"](around:${radius},${lat},${lng});
+  node["${key}"="${value}"](around:${radius},${lat},${lng});
+  way["${key}"="${value}"](around:${radius},${lat},${lng});
 );
 out count;`;
 
@@ -117,7 +117,11 @@ out count;`;
       res.on("end", () => {
         try {
           const parsed = JSON.parse(data);
-          resolve(parsed.elements?.[0]?.tags?.total || 0);
+          // out count returns elements array with a single count element
+          const total = parsed.elements?.find(e => e.type === "count")?.tags?.total
+            || parsed.elements?.[0]?.tags?.total
+            || 0;
+          resolve(parseInt(total) || 0);
         } catch {
           resolve(0);
         }
@@ -210,11 +214,12 @@ async function enrichMatch(match, destCity, intent) {
 
     // For LIVE intent, get additional amenity counts
     if (intent === "move") {
-      const [pharmacies, supermarkets, parks, gyms] = await Promise.all([
-        queryOverpass(match.lat, match.lng, 600, "amenity=pharmacy"),
-        queryOverpass(match.lat, match.lng, 600, "shop=supermarket"),
-        queryOverpass(match.lat, match.lng, 800, "leisure=park"),
-        queryOverpass(match.lat, match.lng, 600, "leisure=fitness_centre"),
+      const [pharmacies, supermarkets, parks, gyms, intlSchools] = await Promise.all([
+        queryOverpass(match.lat, match.lng, 600, "amenity", "pharmacy"),
+        queryOverpass(match.lat, match.lng, 600, "shop", "supermarket"),
+        queryOverpass(match.lat, match.lng, 800, "leisure", "park"),
+        queryOverpass(match.lat, match.lng, 600, "leisure", "fitness_centre"),
+        queryOverpass(match.lat, match.lng, 2000, "amenity", "school"),
       ]);
 
       match.amenities = {
@@ -222,6 +227,7 @@ async function enrichMatch(match, destCity, intent) {
         supermarkets,
         parks,
         gyms,
+        intlSchools,
       };
     }
 
