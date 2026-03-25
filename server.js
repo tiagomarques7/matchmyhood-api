@@ -93,7 +93,6 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
-// Global throttle — minimum 30s between Overpass calls from this server
 let _lastOverpassCall = 0;
 
 function fetchAllAmenities(lat, lng, city) {
@@ -136,7 +135,6 @@ function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
-    // Throttle: wait until 30s have passed since last Overpass call
     const now = Date.now();
     const gap = Math.max(0, (_lastOverpassCall + 30000) - now);
     if (gap > 0) console.log(`Overpass throttle: waiting ${Math.round(gap/1000)}s`);
@@ -157,8 +155,7 @@ function fetchAllAmenities(lat, lng, city) {
       res.on("end", () => {
         if (data.trimStart().startsWith("<")) {
           console.error("Overpass returned HTML despite throttle");
-          resolve(empty);
-          return;
+          resolve(empty); return;
         }
         try {
           const parsed = JSON.parse(data);
@@ -203,12 +200,14 @@ function fetchAllAmenities(lat, lng, city) {
 
           const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
           const hasLL = c => c.lat && c.lon;
-          const transitCoords = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+          const transitCoords     = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
             .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
           const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
-          const gymCoords = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+          const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+          const museumCoords      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,15);
+          const cafeCoords        = els.filter(e => e.tags?.amenity === "cafe").map(coord).filter(hasLL).slice(0,15);
 
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords, supermarketCoords, gymCoords });
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords });
         } catch (e) {
           console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
           resolve(empty);
@@ -537,6 +536,8 @@ app.post("/api/amenities", async (req, res) => {
         if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
         if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
         if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
+        if (amenityData.museumCoords?.length)       m.museumCoords       = amenityData.museumCoords;
+        if (amenityData.cafeCoords?.length)         m.cafeCoords         = amenityData.cafeCoords;
 
         m.amenities = {
           pharmacies:   amenityData.pharmacies,
