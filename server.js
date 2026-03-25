@@ -97,12 +97,18 @@ function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
   return new Promise((resolve) => {
-    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, nearestMetro: [] };
+    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
 
     // Build union of all nwr (node/way/relation) queries
-    // Parks, supermarkets, gyms, museums are almost always mapped as ways in OSM
-    // Using `nwr` ensures we don't miss them
-    const parts = [`nwr["amenity"="pharmacy"](around:700,${lat},${lng});`];
+    const parts = [
+      `nwr["amenity"="pharmacy"](around:700,${lat},${lng});`,
+      // Restaurants & bars for VISIT mode counts
+      `nwr["amenity"="restaurant"](around:600,${lat},${lng});`,
+      `nwr["amenity"="cafe"](around:600,${lat},${lng});`,
+      `nwr["amenity"="bar"](around:600,${lat},${lng});`,
+      `nwr["amenity"="pub"](around:600,${lat},${lng});`,
+      `nwr["amenity"="wine_bar"](around:600,${lat},${lng});`,
+    ];
     for (const [k, v] of (tags.supermarkets || []))
       parts.push(`nwr["${k}"="${v}"](around:700,${lat},${lng});`);
     for (const [k, v] of (tags.gyms || []))
@@ -113,13 +119,13 @@ function fetchAllAmenities(lat, lng, city) {
       parts.push(`nwr["${k}"="${v}"](around:2000,${lat},${lng});`);
     for (const [k, v] of (tags.museums || []))
       parts.push(`nwr["${k}"="${v}"](around:1500,${lat},${lng});`);
-    // Transit: node-only is fine here (entrances/stops are nodes)
+    // Transit: subway_entrance and tram_stop are nodes; stations can be way/relation
     parts.push(
-      `node["railway"="station"](around:800,${lat},${lng});`,
+      `nwr["railway"="station"](around:800,${lat},${lng});`,
       `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
       `node["railway"="tram_stop"](around:800,${lat},${lng});`,
       `node["railway"="halt"](around:800,${lat},${lng});`,
-      `node["station"="subway"](around:800,${lat},${lng});`,
+      `nwr["station"="subway"](around:800,${lat},${lng});`,
       `node["public_transport"="stop_position"]["tram"="yes"](around:800,${lat},${lng});`,
       `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`
     );
@@ -151,6 +157,8 @@ function fetchAllAmenities(lat, lng, city) {
           });
 
           const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
+          const restaurants = els.filter(e => ["restaurant","cafe"].includes(e.tags?.amenity)).length;
+          const bars = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
 
           const count = (tagPairs) => els.filter(e =>
             tagPairs.some(([k, v]) => e.tags?.[k] === v)
@@ -176,7 +184,7 @@ function fetchAllAmenities(lat, lng, city) {
             .filter((v, i, a) => a.indexOf(v) === i)
             .slice(0, 4);
 
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, nearestMetro });
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro });
         } catch (e) {
           console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
           resolve(empty);
@@ -510,6 +518,8 @@ app.post("/api/amenities", async (req, res) => {
           gyms:         amenityData.gyms,
           intlSchools:  amenityData.intlSchools,
           museums:      amenityData.museums,
+          restaurants:  amenityData.restaurants,
+          bars:         amenityData.bars,
         };
 
       } catch (e) {
