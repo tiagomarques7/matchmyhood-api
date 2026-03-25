@@ -97,7 +97,7 @@ function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
   return new Promise((resolve) => {
-    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, nearestMetro: [] };
+    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, nearestMetro: [] };
 
     // Build union of all node queries
     const parts = [`node["amenity"="pharmacy"](around:700,${lat},${lng});`];
@@ -109,7 +109,8 @@ function fetchAllAmenities(lat, lng, city) {
       parts.push(`node["${k}"="${v}"](around:900,${lat},${lng});`);
     for (const [k, v] of (tags.schools || []))
       parts.push(`node["${k}"="${v}"](around:2000,${lat},${lng});`);
-    // Transit — metro, subway, tram, rail
+    for (const [k, v] of (tags.museums || []))
+      parts.push(`node["${k}"="${v}"](around:1500,${lat},${lng});`);
     parts.push(
       `node["railway"="station"](around:800,${lat},${lng});`,
       `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
@@ -148,6 +149,7 @@ function fetchAllAmenities(lat, lng, city) {
           const gyms        = count(tags.gyms || []);
           const parks       = count(tags.parks || []);
           const intlSchools = count(tags.schools || []);
+          const museums     = count(tags.museums || []);
 
           const TRANSIT_MATCHERS = [
             e => e.tags?.railway === "station",
@@ -163,7 +165,7 @@ function fetchAllAmenities(lat, lng, city) {
             .filter((v, i, a) => a.indexOf(v) === i)
             .slice(0, 4);
 
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, nearestMetro });
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, nearestMetro });
         } catch (e) {
           console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
           resolve(empty);
@@ -206,63 +208,63 @@ async function enrichMatchFast(match, destCity) {
 // ── OSM TAG MAPPING BY CITY ─────────────────────────────────────────────────
 const CITY_TAGS = {
   // Portugal
-  "Lisbon": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Porto":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Lisbon": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Porto":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // UK
-  "London": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]] },
+  "London": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // France
-  "Paris":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Paris":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Spain
-  "Barcelona": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Madrid":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Seville":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Barcelona": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Madrid":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Seville":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Netherlands
-  "Amsterdam": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Amsterdam": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Italy
-  "Rome":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Florence": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","halt"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Milan":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Rome":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Florence": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","halt"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Milan":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Germany
-  "Berlin":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Munich":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Frankfurt":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Düsseldorf":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Berlin":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Munich":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Frankfurt":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Düsseldorf":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Other Europe
-  "Vienna":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Copenhagen":{ supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Stockholm": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Prague":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Budapest":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Brussels":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Istanbul":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Vienna":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Copenhagen":{ supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Stockholm": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Prague":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Budapest":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Brussels":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Istanbul":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Americas
-  "New York":      { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Los Angeles":   { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "San Francisco": { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Chicago":       { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Miami":         { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Boston":        { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","common"]] },
-  "Washington DC": { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Toronto":       { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Montreal":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Mexico City":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "São Paulo":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Rio de Janeiro":{ supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Buenos Aires":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","plaza"]] },
+  "New York":      { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Los Angeles":   { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "San Francisco": { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Chicago":       { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Miami":         { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Boston":        { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Washington DC": { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Toronto":       { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Montreal":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Mexico City":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "São Paulo":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Rio de Janeiro":{ supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Buenos Aires":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","plaza"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Asia Pacific
-  "Tokyo":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Seoul":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Singapore": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Dubai":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Sydney":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]] },
-  "Melbourne": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]] },
-  "Bangkok":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Beijing":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Shanghai":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]] },
-  "Bali":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["amenity","bus_station"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Tokyo":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Seoul":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Singapore": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Dubai":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Sydney":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Melbourne": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Bangkok":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Beijing":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Shanghai":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Bali":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["amenity","bus_station"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
   // Africa & Middle East
-  "Cape Town":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","nature_reserve"]] },
-  "Marrakech":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["amenity","bus_station"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]] },
+  "Cape Town":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","nature_reserve"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
+  "Marrakech":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["amenity","bus_station"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]]},
 };
 
 // Default fallback tags for cities not in mapping
@@ -272,6 +274,7 @@ const DEFAULT_TAGS = {
   schools: [["amenity","school"],["amenity","college"]],
   gyms: [["leisure","fitness_centre"],["amenity","gym"]],
   parks: [["leisure","park"],["leisure","garden"]],
+  museums: [["tourism","museum"],["tourism","attraction"],["amenity","arts_centre"],["tourism","gallery"]],
 };
 
 
@@ -295,11 +298,12 @@ async function enrichMatch(match, destCity, intent) {
 
     if (intent === "move") {
       match.amenities = {
-        pharmacies:  amenityData.pharmacies,
+        pharmacies:   amenityData.pharmacies,
         supermarkets: amenityData.supermarkets,
-        parks:       amenityData.parks,
-        gyms:        amenityData.gyms,
-        intlSchools: amenityData.intlSchools,
+        parks:        amenityData.parks,
+        gyms:         amenityData.gyms,
+        intlSchools:  amenityData.intlSchools,
+        museums:      amenityData.museums,
       };
     }
 
@@ -321,7 +325,7 @@ function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent
 
 A person loves "${safehomeHood}" in ${safehomeCity}. They are RELOCATING long-term to ${safedestCity}.${vibeContext}
 
-Find the TOP 2 matching neighbourhoods in ${safedestCity} based on character, daily life quality, community feel, cost, and liveability.
+Find the single BEST matching neighbourhood in ${safedestCity} based on character, daily life quality, community feel, cost, and liveability.
 
 CRITICAL RULES:
 - Neighbourhoods must genuinely exist in ${safedestCity}
@@ -367,14 +371,12 @@ Respond ONLY with a valid JSON array, no markdown:
   }
 ]
 
-Rules: 2 results, descending scores (88-96%, 82-91%), JSON only, lat/lng = exact neighbourhood centre.`;
-
-  } else {
+Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact neighbourhood centre.`;
     return `You are MatchMyHood, an expert neighbourhood matching tool for travellers.
 
 A person loves "${safehomeHood}" in ${safehomeCity}. They are VISITING ${safedestCity} as a traveller.${vibeContext}
 
-Find the TOP 2 matching neighbourhoods in ${safedestCity} to stay in, based on character, energy, food scene, nightlife, and walkability.
+Find the single BEST matching neighbourhood in ${safedestCity} to stay in, based on character, energy, food scene, nightlife, and walkability.
 
 CRITICAL RULES:
 - Neighbourhoods must genuinely exist in ${safedestCity}
@@ -419,7 +421,7 @@ Respond ONLY with a valid JSON array, no markdown:
   }
 ]
 
-Rules: 2 results, descending scores (88-96%, 82-91%), JSON only, lat/lng = exact neighbourhood centre.`;
+Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact neighbourhood centre.`;
   }
 }
 
@@ -452,7 +454,7 @@ app.post("/api/match", async (req, res) => {
       throw new Error("Invalid response format");
     }
 
-    // Fast enrichment — run all 3 matches in parallel (Foursquare only)
+    // Fast enrichment — single match (Foursquare only)
     matches = await Promise.all(
       matches.map(m => enrichMatchFast(m, safedestCity))
     );
@@ -485,11 +487,12 @@ app.post("/api/amenities", async (req, res) => {
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
 
         m.amenities = {
-          pharmacies:  amenityData.pharmacies,
+          pharmacies:   amenityData.pharmacies,
           supermarkets: amenityData.supermarkets,
-          parks:       amenityData.parks,
-          gyms:        amenityData.gyms,
-          intlSchools: amenityData.intlSchools,
+          parks:        amenityData.parks,
+          gyms:         amenityData.gyms,
+          intlSchools:  amenityData.intlSchools,
+          museums:      amenityData.museums,
         };
 
       } catch (e) {
