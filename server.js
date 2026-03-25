@@ -130,7 +130,7 @@ function fetchAllAmenities(lat, lng, city) {
       `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`
     );
 
-    const query = `[out:json][timeout:30];\n(\n${parts.join('\n')}\n);\nout center tags;`;
+    const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
     const req = https.request({
@@ -146,7 +146,10 @@ function fetchAllAmenities(lat, lng, city) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          const allEls = JSON.parse(data).elements || [];
+          const parsed = JSON.parse(data);
+          if (parsed.remark) console.error("Overpass remark:", parsed.remark);
+          const allEls = parsed.elements || [];
+          if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
           // Deduplicate by type+id (nwr can return same place as way AND relation)
           const seen = new Set();
           const els = allEls.filter(e => {
