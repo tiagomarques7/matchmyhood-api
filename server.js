@@ -386,13 +386,10 @@ app.post("/api/match", async (req, res) => {
       throw new Error("Invalid response format");
     }
 
-    // Fast enrichment only — Foursquare + transit (no slow Overpass amenity counts)
-    const enriched = [];
-    for (const m of matches) {
-      const result = await enrichMatchFast(m, safedestCity);
-      enriched.push(result);
-    }
-    matches = enriched;
+    // Fast enrichment — run all 3 matches in parallel (Foursquare only)
+    matches = await Promise.all(
+      matches.map(m => enrichMatchFast(m, safedestCity))
+    );
 
     return res.json({ matches, intent: currentIntent });
 
