@@ -94,7 +94,7 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 // ── OVERPASS API (OpenStreetMap) — transport & amenities ───────────────────
 function queryOverpass(lat, lng, radius, key, value) {
   return new Promise((resolve) => {
-    const query = `[out:json][timeout:10];nwr["${key}"="${value}"](around:${radius},${lat},${lng});out count;`;
+    const query = `[out:json][timeout:15];node["${key}"="${value}"](around:${radius},${lat},${lng});out count;`;
     const body = `data=${encodeURIComponent(query)}`;
 
     const req = https.request({
@@ -111,9 +111,11 @@ function queryOverpass(lat, lng, radius, key, value) {
       res.on("end", () => {
         try {
           const parsed = JSON.parse(data);
-          const count = parsed.elements?.find(e => e.type === "count")?.tags?.total || 0;
-          resolve(parseInt(count) || 0);
-        } catch {
+          const countEl = parsed.elements?.[0];
+          const total = countEl?.tags?.total || countEl?.tags?.nodes || 0;
+          resolve(parseInt(total) || 0);
+        } catch (e) {
+          console.error("Overpass parse error:", e.message, data?.slice(0, 100));
           resolve(0);
         }
       });
