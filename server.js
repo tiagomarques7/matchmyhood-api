@@ -135,7 +135,8 @@ function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
-    const gap = Math.max(0, (_lastOverpassCall + 30000) - Date.now());
+    // Throttle: enforce 35s gap between Overpass calls (rate limit window)
+    const gap = Math.max(0, (_lastOverpassCall + 35000) - Date.now());
     if (gap > 0) console.log(`Overpass throttle: waiting ${Math.round(gap/1000)}s`);
     await new Promise(r => setTimeout(r, gap));
     _lastOverpassCall = Date.now();
@@ -152,8 +153,32 @@ function fetchAllAmenities(lat, lng, city) {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
-        if (data.trimStart().startsWith("<")) { console.error("Overpass rate-limited (HTML)"); resolve(empty); return; }
-        try {
+        // Rate-limited: Overpass returns HTML — wait 35s and retry once
+        if (data.trimStart().startsWith("<")) {
+          console.error("Overpass rate-limited (HTML) — retrying in 35s");
+          setTimeout(() => {
+            _lastOverpassCall = Date.now();
+            const req2 = https.request({
+              hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+            }, (res2) => {
+              let d2 = "";
+              res2.on("data", c => d2 += c);
+              res2.on("end", () => {
+                if (d2.trimStart().startsWith("<")) { console.error("Overpass still rate-limited after retry"); resolve(empty); return; }
+                try { processOverpass(d2); } catch(e) { console.error("Retry parse error:", e.message); resolve(empty); }
+              });
+              res2.on("error", () => resolve(empty));
+            });
+            req2.on("error", () => resolve(empty));
+            req2.write(body); req2.end();
+          }, 35000);
+          return;
+        }
+        try { processOverpass(data); }
+        catch(e) { console.error("Overpass parse error:", e.message, data?.slice(0,120)); resolve(empty); }
+
+        function processOverpass(data) {
           const parsed = JSON.parse(data);
           if (parsed.remark) console.error("Overpass remark:", parsed.remark);
           const allEls = parsed.elements || [];
@@ -177,7 +202,6 @@ function fetchAllAmenities(lat, lng, city) {
 
           const supermarkets = count(tags.supermarkets || []);
           const gyms         = count(tags.gyms || []);
-          // Named parks only — avoids counting tiny unnamed OSM garden nodes
           const parks        = els.filter(e => (tags.parks||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
           const intlSchools  = count(tags.schools || []);
           const museums      = count(tags.museums || []);
@@ -209,9 +233,6 @@ function fetchAllAmenities(lat, lng, city) {
 
           resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars, nearestMetro,
                     transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
-        } catch (e) {
-          console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
-          resolve(empty);
         }
       });
       res.on("error", () => resolve(empty));
