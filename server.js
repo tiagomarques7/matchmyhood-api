@@ -96,7 +96,7 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
 
     // Build union of all nwr (node/way/relation) queries
@@ -133,19 +133,49 @@ function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
-    const req = https.request({
-      hostname: "overpass-api.de",
-      path: "/api/interpreter",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(body),
-      },
-    }, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        try {
+    // Helper to run Overpass query against a given hostname
+    const runOverpass = (hostname) => new Promise((res2, rej2) => {
+      const r2 = https.request({
+        hostname,
+        path: "/api/interpreter",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      }, (res) => {
+        let data = "";
+        res.on("data", chunk => data += chunk);
+        res.on("end", () => res2(data));
+        res.on("error", rej2);
+      });
+      r2.on("error", rej2);
+      r2.write(body);
+      r2.end();
+    });
+
+    // Try primary, fall back to secondary if we get HTML (rate-limit/ban page)
+    let rawData;
+    try {
+      rawData = await runOverpass("overpass.kumi.systems");
+      if (rawData.trimStart().startsWith("<") && !rawData.includes('"elements"')) {
+        console.error("Overpass kumi.systems returned HTML — falling back to overpass-api.de");
+        rawData = await runOverpass("overpass-api.de");
+      }
+    } catch (e) {
+      console.error("Overpass primary failed, trying fallback:", e.message);
+      try { rawData = await runOverpass("overpass-api.de"); }
+      catch (e2) { console.error("Overpass fallback also failed:", e2.message); resolve(empty); return; }
+    }
+
+    // Process rawData
+    const data = rawData;
+    try {
+          if (data.trimStart().startsWith("<")) {
+            console.error("Overpass returned HTML error page (rate limited). HTTP status unknown.");
+            resolve(empty);
+            return;
+          }
           const parsed = JSON.parse(data);
           if (parsed.remark) console.error("Overpass remark:", parsed.remark);
           const allEls = parsed.elements || [];
@@ -189,16 +219,9 @@ function fetchAllAmenities(lat, lng, city) {
 
           resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro });
         } catch (e) {
-          console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
-          resolve(empty);
-        }
-      });
-      res.on("error", () => resolve(empty));
-    });
-
-    req.on("error", () => resolve(empty));
-    req.write(body);
-    req.end();
+      console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
+      resolve(empty);
+    }
   });
 }
 
