@@ -93,12 +93,11 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
-function fetchAllAmenities(lat, lng, city) {
+async function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
-  return new Promise(async (resolve) => {
-    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
-
+  const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
+  try {
     // Build union of all nwr (node/way/relation) queries
     const parts = [
       `nwr["amenity"="pharmacy"](around:700,${lat},${lng});`,
@@ -133,8 +132,16 @@ function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
-    // Helper to run Overpass query against a given hostname
-    const runOverpass = (hostname) => new Promise((res2, rej2) => {
+    // Helper: POST to Overpass with a hard timeout (ms)
+    const postOverpass = (hostname, timeoutMs) => new Promise((res2, rej2) => {
+      let finished = false;
+      const done = (val, isErr) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        if (isErr) rej2(val); else res2(val);
+      };
+      const timer = setTimeout(() => done(new Error(`Overpass ${hostname} timed out after ${timeoutMs}ms`), true), timeoutMs);
       const r2 = https.request({
         hostname,
         path: "/api/interpreter",
@@ -144,85 +151,91 @@ function fetchAllAmenities(lat, lng, city) {
           "Content-Length": Buffer.byteLength(body),
         },
       }, (res) => {
-        let data = "";
-        res.on("data", chunk => data += chunk);
-        res.on("end", () => res2(data));
-        res.on("error", rej2);
+        let raw = "";
+        res.on("data", chunk => raw += chunk);
+        res.on("end", () => done(raw, false));
+        res.on("error", e => done(e, true));
       });
-      r2.on("error", rej2);
+      r2.on("error", e => done(e, true));
       r2.write(body);
       r2.end();
     });
 
-    // Try primary, fall back to secondary if we get HTML (rate-limit/ban page)
-    let rawData;
+    // Parse raw Overpass response — throws if HTML (rate-limit page) or bad JSON
+    const parseOverpass = (raw) => {
+      if (raw.trimStart().startsWith("<"))
+        throw new Error(`Overpass returned HTML (rate-limited): ${raw.slice(0, 80)}`);
+      return JSON.parse(raw);
+    };
+
+    // Try overpass-api.de first (20s), then lz4.overpass-api.de as fallback (20s)
+    let parsed;
     try {
-      rawData = await runOverpass("overpass.kumi.systems");
-      if (rawData.trimStart().startsWith("<") && !rawData.includes('"elements"')) {
-        console.error("Overpass kumi.systems returned HTML — falling back to overpass-api.de");
-        rawData = await runOverpass("overpass-api.de");
+      const raw = await postOverpass("overpass-api.de", 20000);
+      parsed = parseOverpass(raw);
+      console.log(`Overpass overpass-api.de OK — ${parsed.elements?.length ?? 0} elements`);
+    } catch (e1) {
+      console.error("Overpass primary failed:", e1.message, "— trying fallback");
+      try {
+        const raw = await postOverpass("lz4.overpass-api.de", 20000);
+        parsed = parseOverpass(raw);
+        console.log(`Overpass lz4 fallback OK — ${parsed.elements?.length ?? 0} elements`);
+      } catch (e2) {
+        console.error("Overpass fallback also failed:", e2.message);
+        return empty;
       }
-    } catch (e) {
-      console.error("Overpass primary failed, trying fallback:", e.message);
-      try { rawData = await runOverpass("overpass-api.de"); }
-      catch (e2) { console.error("Overpass fallback also failed:", e2.message); resolve(empty); return; }
     }
 
-    // Process rawData
-    const data = rawData;
     try {
-          if (data.trimStart().startsWith("<")) {
-            console.error("Overpass returned HTML error page (rate limited). HTTP status unknown.");
-            resolve(empty);
-            return;
-          }
-          const parsed = JSON.parse(data);
-          if (parsed.remark) console.error("Overpass remark:", parsed.remark);
-          const allEls = parsed.elements || [];
-          if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
-          // Deduplicate by type+id (nwr can return same place as way AND relation)
-          const seen = new Set();
-          const els = allEls.filter(e => {
-            const key = `${e.type}:${e.id}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
+      if (parsed.remark) console.error("Overpass remark:", parsed.remark);
+      const allEls = parsed.elements || [];
+      if (allEls.length === 0) console.error("Overpass returned 0 elements");
+      // Deduplicate by type+id (nwr can return same place as way AND relation)
+      const seen = new Set();
+      const els = allEls.filter(e => {
+        const key = `${e.type}:${e.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
-          const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
-          const restaurants = els.filter(e => ["restaurant","cafe"].includes(e.tags?.amenity)).length;
-          const bars = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
+      const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
+      const restaurants = els.filter(e => ["restaurant","cafe"].includes(e.tags?.amenity)).length;
+      const bars = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
 
-          const count = (tagPairs) => els.filter(e =>
-            tagPairs.some(([k, v]) => e.tags?.[k] === v)
-          ).length;
+      const count = (tagPairs) => els.filter(e =>
+        tagPairs.some(([k, v]) => e.tags?.[k] === v)
+      ).length;
 
-          const supermarkets = count(tags.supermarkets || []);
-          const gyms        = count(tags.gyms || []);
-          const parks       = count(tags.parks || []);
-          const intlSchools = count(tags.schools || []);
-          const museums     = count(tags.museums || []);
+      const supermarkets = count(tags.supermarkets || []);
+      const gyms        = count(tags.gyms || []);
+      const parks       = count(tags.parks || []);
+      const intlSchools = count(tags.schools || []);
+      const museums     = count(tags.museums || []);
 
-          const TRANSIT_MATCHERS = [
-            e => e.tags?.railway === "station",
-            e => e.tags?.railway === "subway_entrance",
-            e => e.tags?.railway === "tram_stop",
-            e => e.tags?.railway === "halt",
-            e => e.tags?.station === "subway",
-            e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
-          ];
-          const nearestMetro = els
-            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
-            .map(e => e.tags.name)
-            .filter((v, i, a) => a.indexOf(v) === i)
-            .slice(0, 4);
+      const TRANSIT_MATCHERS = [
+        e => e.tags?.railway === "station",
+        e => e.tags?.railway === "subway_entrance",
+        e => e.tags?.railway === "tram_stop",
+        e => e.tags?.railway === "halt",
+        e => e.tags?.station === "subway",
+        e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
+      ];
+      const nearestMetro = els
+        .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+        .map(e => e.tags.name)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 4);
 
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro });
-        } catch (e) {
-      console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
-      resolve(empty);
+      return { pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro };
+    } catch (e) {
+      console.error("Overpass parse error:", e.message);
+      return empty;
     }
-  });
+  } catch (outerErr) {
+    console.error("fetchAllAmenities outer error:", outerErr.message);
+    return empty;
+  }
 }
 
 // Format Foursquare venue
