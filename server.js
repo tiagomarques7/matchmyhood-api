@@ -77,6 +77,30 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
+          // Rate-limit: Overpass returns HTML — retry once after 8s
+          if (data.trimStart().startsWith("<")) {
+            console.error("Overpass returned HTML (rate-limited) — retrying in 8s");
+            setTimeout(() => {
+              const req2 = https.request({
+                hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+              }, (res2) => {
+                let d2 = "";
+                res2.on("data", c => d2 += c);
+                res2.on("end", () => {
+                  try {
+                    const p2 = JSON.parse(d2);
+                    if (p2.remark) console.error("Overpass remark:", p2.remark);
+                    resolve(p2);
+                  } catch { resolve(empty); }
+                });
+                res2.on("error", () => resolve(empty));
+              });
+              req2.on("error", () => resolve(empty));
+              req2.write(body); req2.end();
+            }, 8000);
+            return;
+          }
           const parsed = JSON.parse(data);
           resolve(parsed.results || []);
         } catch {
@@ -93,11 +117,12 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
-async function fetchAllAmenities(lat, lng, city) {
+function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
-  const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
-  try {
+  return new Promise((resolve) => {
+    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
+
     // Build union of all nwr (node/way/relation) queries
     const parts = [
       `nwr["amenity"="pharmacy"](around:700,${lat},${lng});`,
@@ -132,110 +157,102 @@ async function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
-    // Helper: POST to Overpass with a hard timeout (ms)
-    const postOverpass = (hostname, timeoutMs) => new Promise((res2, rej2) => {
-      let finished = false;
-      const done = (val, isErr) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        if (isErr) rej2(val); else res2(val);
-      };
-      const timer = setTimeout(() => done(new Error(`Overpass ${hostname} timed out after ${timeoutMs}ms`), true), timeoutMs);
-      const r2 = https.request({
-        hostname,
-        path: "/api/interpreter",
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(body),
-        },
-      }, (res) => {
-        let raw = "";
-        res.on("data", chunk => raw += chunk);
-        res.on("end", () => done(raw, false));
-        res.on("error", e => done(e, true));
+    const req = https.request({
+      hostname: "overpass-api.de",
+      path: "/api/interpreter",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.remark) console.error("Overpass remark:", parsed.remark);
+          const allEls = parsed.elements || [];
+          if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
+          // Deduplicate by type+id (nwr can return same place as way AND relation)
+          const seen = new Set();
+          const els = allEls.filter(e => {
+            const key = `${e.type}:${e.id}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
+          const restaurants = els.filter(e => ["restaurant","cafe"].includes(e.tags?.amenity)).length;
+          const bars = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
+
+          const count = (tagPairs) => els.filter(e =>
+            tagPairs.some(([k, v]) => e.tags?.[k] === v)
+          ).length;
+
+          const supermarkets = count(tags.supermarkets || []);
+          const gyms        = count(tags.gyms || []);
+          const parks       = count(tags.parks || []);
+          const intlSchools = count(tags.schools || []);
+          const museums     = count(tags.museums || []);
+
+          const TRANSIT_MATCHERS = [
+            e => e.tags?.railway === "station",
+            e => e.tags?.railway === "subway_entrance",
+            e => e.tags?.railway === "tram_stop",
+            e => e.tags?.railway === "halt",
+            e => e.tags?.station === "subway",
+            e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
+          ];
+          const nearestMetro = els
+            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+            .map(e => e.tags.name)
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .slice(0, 4);
+
+          // Include transit station coordinates so the browser map can use them
+          // without making a second Overpass call
+          const transitCoords = els
+            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && (e.lat || e.center?.lat))
+            .map(e => ({
+              name: e.tags?.name || 'Station',
+              lat: e.lat ?? e.center?.lat,
+              lon: e.lon ?? e.center?.lon
+            }))
+            .filter((v, i, a) => a.findIndex(x => x.name === v.name) === i)
+            .slice(0, 10);
+
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords });
+        } catch (e) {
+          console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
+          resolve(empty);
+        }
       });
-      r2.on("error", e => done(e, true));
-      r2.write(body);
-      r2.end();
+      res.on("error", () => {
+        // Retry once after 8s pause if we get an error (rate limit recovery)
+        console.error("Overpass request error — retrying in 8s");
+        setTimeout(() => {
+          const req2 = https.request({
+            hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+          }, (res2) => {
+            let d2 = "";
+            res2.on("data", c => d2 += c);
+            res2.on("end", () => {
+              try { resolve(JSON.parse(d2)); } catch { resolve(empty); }
+            });
+          });
+          req2.on("error", () => resolve(empty));
+          req2.write(body); req2.end();
+        }, 8000);
+      });
     });
 
-    // Parse raw Overpass response — throws if HTML (rate-limit page) or bad JSON
-    const parseOverpass = (raw) => {
-      if (raw.trimStart().startsWith("<"))
-        throw new Error(`Overpass returned HTML (rate-limited): ${raw.slice(0, 80)}`);
-      return JSON.parse(raw);
-    };
-
-    // Try overpass-api.de first (20s), then lz4.overpass-api.de as fallback (20s)
-    let parsed;
-    try {
-      const raw = await postOverpass("overpass-api.de", 20000);
-      parsed = parseOverpass(raw);
-      console.log(`Overpass overpass-api.de OK — ${parsed.elements?.length ?? 0} elements`);
-    } catch (e1) {
-      console.error("Overpass primary failed:", e1.message, "— trying fallback");
-      try {
-        const raw = await postOverpass("lz4.overpass-api.de", 20000);
-        parsed = parseOverpass(raw);
-        console.log(`Overpass lz4 fallback OK — ${parsed.elements?.length ?? 0} elements`);
-      } catch (e2) {
-        console.error("Overpass fallback also failed:", e2.message);
-        return empty;
-      }
-    }
-
-    try {
-      if (parsed.remark) console.error("Overpass remark:", parsed.remark);
-      const allEls = parsed.elements || [];
-      if (allEls.length === 0) console.error("Overpass returned 0 elements");
-      // Deduplicate by type+id (nwr can return same place as way AND relation)
-      const seen = new Set();
-      const els = allEls.filter(e => {
-        const key = `${e.type}:${e.id}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
-      const restaurants = els.filter(e => ["restaurant","cafe"].includes(e.tags?.amenity)).length;
-      const bars = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
-
-      const count = (tagPairs) => els.filter(e =>
-        tagPairs.some(([k, v]) => e.tags?.[k] === v)
-      ).length;
-
-      const supermarkets = count(tags.supermarkets || []);
-      const gyms        = count(tags.gyms || []);
-      const parks       = count(tags.parks || []);
-      const intlSchools = count(tags.schools || []);
-      const museums     = count(tags.museums || []);
-
-      const TRANSIT_MATCHERS = [
-        e => e.tags?.railway === "station",
-        e => e.tags?.railway === "subway_entrance",
-        e => e.tags?.railway === "tram_stop",
-        e => e.tags?.railway === "halt",
-        e => e.tags?.station === "subway",
-        e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
-      ];
-      const nearestMetro = els
-        .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
-        .map(e => e.tags.name)
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .slice(0, 4);
-
-      return { pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro };
-    } catch (e) {
-      console.error("Overpass parse error:", e.message);
-      return empty;
-    }
-  } catch (outerErr) {
-    console.error("fetchAllAmenities outer error:", outerErr.message);
-    return empty;
-  }
+    req.on("error", () => resolve(empty));
+    req.write(body);
+    req.end();
+  });
 }
 
 // Format Foursquare venue
@@ -560,6 +577,8 @@ app.post("/api/amenities", async (req, res) => {
           restaurants:  amenityData.restaurants,
           bars:         amenityData.bars,
         };
+        // Pass transit coords to browser for map pins — avoids second browser Overpass call
+        if (amenityData.transitCoords?.length) m.transitCoords = amenityData.transitCoords;
 
       } catch (e) {
         console.error("Amenity error for", m.name, e.message);
