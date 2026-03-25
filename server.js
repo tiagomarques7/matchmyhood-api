@@ -91,10 +91,36 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
   });
 }
 
-// ── OVERPASS API (OpenStreetMap) — transport & amenities ───────────────────
-function queryOverpass(lat, lng, radius, key, value) {
+// ── OVERPASS API — single batched query per neighbourhood ──────────────────
+// Fetches ALL amenity types + transit in ONE request to avoid rate limiting
+function fetchAllAmenities(lat, lng, city) {
+  const tags = CITY_TAGS[city] || DEFAULT_TAGS;
+
   return new Promise((resolve) => {
-    const query = `[out:json][timeout:15];node["${key}"="${value}"](around:${radius},${lat},${lng});out count;`;
+    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, nearestMetro: [] };
+
+    // Build union of all node queries
+    const parts = [`node["amenity"="pharmacy"](around:700,${lat},${lng});`];
+    for (const [k, v] of (tags.supermarkets || []))
+      parts.push(`node["${k}"="${v}"](around:700,${lat},${lng});`);
+    for (const [k, v] of (tags.gyms || []))
+      parts.push(`node["${k}"="${v}"](around:700,${lat},${lng});`);
+    for (const [k, v] of (tags.parks || []))
+      parts.push(`node["${k}"="${v}"](around:900,${lat},${lng});`);
+    for (const [k, v] of (tags.schools || []))
+      parts.push(`node["${k}"="${v}"](around:2000,${lat},${lng});`);
+    // Transit — metro, subway, tram, rail
+    parts.push(
+      `node["railway"="station"](around:800,${lat},${lng});`,
+      `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
+      `node["railway"="tram_stop"](around:800,${lat},${lng});`,
+      `node["railway"="halt"](around:800,${lat},${lng});`,
+      `node["station"="subway"](around:800,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["tram"="yes"](around:800,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`
+    );
+
+    const query = `[out:json][timeout:30];\n(\n${parts.join('\n')}\n);\nout tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
     const req = https.request({
@@ -110,69 +136,43 @@ function queryOverpass(lat, lng, radius, key, value) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          const parsed = JSON.parse(data);
-          const countEl = parsed.elements?.[0];
-          const total = countEl?.tags?.total || countEl?.tags?.nodes || 0;
-          resolve(parseInt(total) || 0);
-        } catch (e) {
-          console.error("Overpass parse error:", e.message, data?.slice(0, 100));
-          resolve(0);
-        }
-      });
-      res.on("error", () => resolve(0));
-    });
+          const els = JSON.parse(data).elements || [];
 
-    req.on("error", () => resolve(0));
-    req.write(body);
-    req.end();
-  });
-}
+          const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
 
-// Get nearest metro/subway stations
-function getNearestTransit(lat, lng) {
-  return new Promise((resolve) => {
-    // Broad query covering metro, subway, train stations across all cities
-    const query = `[out:json][timeout:10];
-(
-  node["railway"="station"](around:800,${lat},${lng});
-  node["railway"="subway_entrance"](around:800,${lat},${lng});
-  node["station"="subway"](around:800,${lat},${lng});
-  node["railway"="halt"](around:800,${lat},${lng});
-  node["public_transport"="stop_position"]["train"="yes"](around:800,${lat},${lng});
-  node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});
-);
-out 5;`;
+          const count = (tagPairs) => els.filter(e =>
+            tagPairs.some(([k, v]) => e.tags?.[k] === v)
+          ).length;
 
-    const body = `data=${encodeURIComponent(query)}`;
+          const supermarkets = count(tags.supermarkets || []);
+          const gyms        = count(tags.gyms || []);
+          const parks       = count(tags.parks || []);
+          const intlSchools = count(tags.schools || []);
 
-    const req = https.request({
-      hostname: "overpass-api.de",
-      path: "/api/interpreter",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(body),
-      },
-    }, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          const stations = (parsed.elements || [])
-            .filter(e => e.tags?.name)
+          const TRANSIT_MATCHERS = [
+            e => e.tags?.railway === "station",
+            e => e.tags?.railway === "subway_entrance",
+            e => e.tags?.railway === "tram_stop",
+            e => e.tags?.railway === "halt",
+            e => e.tags?.station === "subway",
+            e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
+          ];
+          const nearestMetro = els
+            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
             .map(e => e.tags.name)
             .filter((v, i, a) => a.indexOf(v) === i)
-            .slice(0, 3);
-          resolve(stations);
-        } catch {
-          resolve([]);
+            .slice(0, 4);
+
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, nearestMetro });
+        } catch (e) {
+          console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
+          resolve(empty);
         }
       });
-      res.on("error", () => resolve([]));
+      res.on("error", () => resolve(empty));
     });
 
-    req.on("error", () => resolve([]));
+    req.on("error", () => resolve(empty));
     req.write(body);
     req.end();
   });
@@ -274,14 +274,6 @@ const DEFAULT_TAGS = {
   parks: [["leisure","park"],["leisure","garden"]],
 };
 
-async function queryTagGroup(lat, lng, radius, tagPairs) {
-  let total = 0;
-  for (const [key, value] of tagPairs) {
-    total += await queryOverpass(lat, lng, radius, key, value);
-    await new Promise(r => setTimeout(r, 100));
-  }
-  return total;
-}
 
 
 async function enrichMatch(match, destCity, intent) {
@@ -296,22 +288,19 @@ async function enrichMatch(match, destCity, intent) {
     if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity));
     if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity));
 
-    const tags = CITY_TAGS[destCity] || DEFAULT_TAGS;
+    // ONE batched Overpass call for all amenities + transit
+    const amenityData = await fetchAllAmenities(match.lat, match.lng, destCity);
 
-    await new Promise(r => setTimeout(r, 100));
-    const transitStations = await getNearestTransit(match.lat, match.lng);
-    if (transitStations.length > 0) match.nearestMetro = transitStations;
+    if (amenityData.nearestMetro.length > 0) match.nearestMetro = amenityData.nearestMetro;
 
     if (intent === "move") {
-      await new Promise(r => setTimeout(r, 200));
-      const pharmacies = await queryOverpass(match.lat, match.lng, 700, "amenity", "pharmacy");
-      await new Promise(r => setTimeout(r, 150));
-      const supermarkets = await queryTagGroup(match.lat, match.lng, 700, tags.supermarkets);
-      const parks = await queryTagGroup(match.lat, match.lng, 900, tags.parks);
-      const gyms = await queryTagGroup(match.lat, match.lng, 700, tags.gyms);
-      const intlSchools = await queryTagGroup(match.lat, match.lng, 2000, tags.schools);
-
-      match.amenities = { pharmacies, supermarkets, parks, gyms, intlSchools };
+      match.amenities = {
+        pharmacies:  amenityData.pharmacies,
+        supermarkets: amenityData.supermarkets,
+        parks:       amenityData.parks,
+        gyms:        amenityData.gyms,
+        intlSchools: amenityData.intlSchools,
+      };
     }
 
   } catch (err) {
@@ -490,32 +479,26 @@ app.post("/api/amenities", async (req, res) => {
       if (!m.lat || !m.lng) { enriched.push(m); continue; }
 
       try {
-        await new Promise(r => setTimeout(r, 100));
-        const transitStations = await getNearestTransit(m.lat, m.lng);
-        if (transitStations.length > 0) m.nearestMetro = transitStations;
+        // ONE batched Overpass call per neighbourhood
+        const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity);
 
-        const tags = CITY_TAGS[destCity] || DEFAULT_TAGS;
-
-      await new Promise(r => setTimeout(r, 200));
-      const pharmacies = await queryOverpass(m.lat, m.lng, 700, "amenity", "pharmacy");
-      await new Promise(r => setTimeout(r, 150));
-      const supermarkets = await queryTagGroup(m.lat, m.lng, 700, tags.supermarkets);
-      const parks = await queryTagGroup(m.lat, m.lng, 900, tags.parks);
-      const gyms = await queryTagGroup(m.lat, m.lng, 700, tags.gyms);
-      const intlSchools = await queryTagGroup(m.lat, m.lng, 2000, tags.schools);
+        if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
 
         m.amenities = {
-          pharmacies,
-          supermarkets,
-          parks,
-          gyms: gyms1 + gyms2,
-          intlSchools
+          pharmacies:  amenityData.pharmacies,
+          supermarkets: amenityData.supermarkets,
+          parks:       amenityData.parks,
+          gyms:        amenityData.gyms,
+          intlSchools: amenityData.intlSchools,
         };
+
       } catch (e) {
         console.error("Amenity error for", m.name, e.message);
       }
 
       enriched.push(m);
+      // Brief pause between neighbourhoods to be polite to Overpass
+      await new Promise(r => setTimeout(r, 500));
     }
 
     return res.json({ matches: enriched });
