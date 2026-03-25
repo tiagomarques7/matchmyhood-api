@@ -93,10 +93,12 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
 
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
+let _lastOverpassCall = 0;
+
 function fetchAllAmenities(lat, lng, city) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
 
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
 
     // Build union of all nwr (node/way/relation) queries
@@ -133,6 +135,11 @@ function fetchAllAmenities(lat, lng, city) {
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
+    const gap = Math.max(0, (_lastOverpassCall + 30000) - Date.now());
+    if (gap > 0) console.log(`Overpass throttle: waiting ${Math.round(gap/1000)}s`);
+    await new Promise(r => setTimeout(r, gap));
+    _lastOverpassCall = Date.now();
+
     const req = https.request({
       hostname: "overpass-api.de",
       path: "/api/interpreter",
@@ -145,12 +152,12 @@ function fetchAllAmenities(lat, lng, city) {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
+        if (data.trimStart().startsWith("<")) { console.error("Overpass rate-limited (HTML)"); resolve(empty); return; }
         try {
           const parsed = JSON.parse(data);
           if (parsed.remark) console.error("Overpass remark:", parsed.remark);
           const allEls = parsed.elements || [];
           if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
-          // Deduplicate by type+id (nwr can return same place as way AND relation)
           const seen = new Set();
           const els = allEls.filter(e => {
             const key = `${e.type}:${e.id}`;
@@ -159,19 +166,21 @@ function fetchAllAmenities(lat, lng, city) {
             return true;
           });
 
-          const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
-          const restaurants = els.filter(e => ["restaurant","cafe"].includes(e.tags?.amenity)).length;
-          const bars = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
+          const pharmacies  = els.filter(e => e.tags?.amenity === "pharmacy").length;
+          const restaurants = els.filter(e => e.tags?.amenity === "restaurant").length;
+          const cafes       = els.filter(e => e.tags?.amenity === "cafe").length;
+          const bars        = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
 
           const count = (tagPairs) => els.filter(e =>
             tagPairs.some(([k, v]) => e.tags?.[k] === v)
           ).length;
 
           const supermarkets = count(tags.supermarkets || []);
-          const gyms        = count(tags.gyms || []);
-          const parks       = count(tags.parks || []);
-          const intlSchools = count(tags.schools || []);
-          const museums     = count(tags.museums || []);
+          const gyms         = count(tags.gyms || []);
+          // Named parks only — avoids counting tiny unnamed OSM garden nodes
+          const parks        = els.filter(e => (tags.parks||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
+          const intlSchools  = count(tags.schools || []);
+          const museums      = count(tags.museums || []);
 
           const TRANSIT_MATCHERS = [
             e => e.tags?.railway === "station",
@@ -187,7 +196,19 @@ function fetchAllAmenities(lat, lng, city) {
             .filter((v, i, a) => a.indexOf(v) === i)
             .slice(0, 4);
 
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro });
+          const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
+          const hasLL = c => c.lat && c.lon;
+          const transitCoords     = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+            .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+          const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+          const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+          const museumCoords      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,15);
+          const cafeCoords        = els.filter(e => e.tags?.amenity === "cafe").map(coord).filter(hasLL).slice(0,20);
+          const restaurantCoords  = els.filter(e => e.tags?.amenity === "restaurant").map(coord).filter(hasLL).slice(0,40);
+          const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
+
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars, nearestMetro,
+                    transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
         } catch (e) {
           console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
           resolve(empty);
@@ -513,6 +534,13 @@ app.post("/api/amenities", async (req, res) => {
         const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
+        if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
+        if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
+        if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
+        if (amenityData.museumCoords?.length)       m.museumCoords       = amenityData.museumCoords;
+        if (amenityData.cafeCoords?.length)         m.cafeCoords         = amenityData.cafeCoords;
+        if (amenityData.restaurantCoords?.length)   m.restaurantCoords   = amenityData.restaurantCoords;
+        if (amenityData.barCoords?.length)          m.barCoords          = amenityData.barCoords;
 
         m.amenities = {
           pharmacies:   amenityData.pharmacies,
@@ -522,6 +550,7 @@ app.post("/api/amenities", async (req, res) => {
           intlSchools:  amenityData.intlSchools,
           museums:      amenityData.museums,
           restaurants:  amenityData.restaurants,
+          cafes:        amenityData.cafes,
           bars:         amenityData.bars,
         };
 
