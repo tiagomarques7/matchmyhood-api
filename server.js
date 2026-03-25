@@ -130,7 +130,7 @@ function fetchAllAmenities(lat, lng, city) {
       `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`
     );
 
-    const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout tags;`;
+    const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
     const req = https.request({
