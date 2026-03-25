@@ -145,13 +145,30 @@ function fetchAllAmenities(lat, lng, city) {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
-        try {
-          // Overpass returns HTML when rate-limited — detect and bail out cleanly
-          if (data.trimStart().startsWith("<")) {
-            console.error("Overpass rate-limited (HTML response) — returning empty");
-            resolve(empty);
-            return;
-          }
+        // Overpass returns HTML when rate-limited — retry once after 15s
+        if (data.trimStart().startsWith("<")) {
+          console.error("Overpass rate-limited — retrying in 15s");
+          setTimeout(() => {
+            const req2 = https.request({
+              hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+            }, (res2) => {
+              let data2 = "";
+              res2.on("data", c => data2 += c);
+              res2.on("end", () => {
+                if (data2.trimStart().startsWith("<")) { console.error("Overpass still rate-limited after retry"); resolve(empty); return; }
+                try { processOverpassData(data2); } catch(e) { console.error("Retry parse error:", e.message); resolve(empty); }
+              });
+              res2.on("error", () => resolve(empty));
+            });
+            req2.on("error", () => resolve(empty));
+            req2.write(body); req2.end();
+          }, 15000);
+          return;
+        }
+        try { processOverpassData(data); } catch(e) { console.error("Overpass batch parse error:", e.message, data?.slice(0,120)); resolve(empty); }
+
+        function processOverpassData(data) {
           const parsed = JSON.parse(data);
           if (parsed.remark) console.error("Overpass remark:", parsed.remark);
           const allEls = parsed.elements || [];
@@ -193,19 +210,14 @@ function fetchAllAmenities(lat, lng, city) {
             .filter((v, i, a) => a.indexOf(v) === i)
             .slice(0, 4);
 
-          // Coords for map pins — nodes have lat/lon, ways/relations have center
           const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
-          const hasLatLon = c => c.lat && c.lon;
-
-          const transitCoords = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLatLon)
-            .filter((v, i, a) => a.findIndex(x => x.name === v.name) === i).slice(0, 10);
-          const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLatLon).slice(0, 10);
-          const gymCoords = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLatLon).slice(0, 10);
+          const hasLL = c => c.lat && c.lon;
+          const transitCoords = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+            .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+          const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+          const gymCoords = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
 
           resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords, supermarketCoords, gymCoords });
-        } catch (e) {
-          console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
-          resolve(empty);
         }
       });
       res.on("error", () => resolve(empty));
