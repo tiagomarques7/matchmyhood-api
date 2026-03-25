@@ -77,11 +77,6 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          if (data.trimStart().startsWith("<")) {
-            console.error("Overpass returned HTML (rate-limited) — returning empty");
-            resolve(empty);
-            return;
-          }
           const parsed = JSON.parse(data);
           resolve(parsed.results || []);
         } catch {
@@ -151,6 +146,12 @@ function fetchAllAmenities(lat, lng, city) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
+          // Overpass returns HTML when rate-limited — detect and bail out cleanly
+          if (data.trimStart().startsWith("<")) {
+            console.error("Overpass rate-limited (HTML response) — returning empty");
+            resolve(empty);
+            return;
+          }
           const parsed = JSON.parse(data);
           if (parsed.remark) console.error("Overpass remark:", parsed.remark);
           const allEls = parsed.elements || [];
@@ -192,27 +193,14 @@ function fetchAllAmenities(lat, lng, city) {
             .filter((v, i, a) => a.indexOf(v) === i)
             .slice(0, 4);
 
-          // Extract point coords for map pins (use center for ways/relations)
-          const getCoord = e => ({
-            lat: e.lat ?? e.center?.lat,
-            lon: e.lon ?? e.center?.lon,
-            name: e.tags?.name || ''
-          });
-          const hasCoord = c => c.lat && c.lon;
+          // Coords for map pins — nodes have lat/lon, ways/relations have center
+          const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
+          const hasLatLon = c => c.lat && c.lon;
 
-          const transitCoords = els
-            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)))
-            .map(getCoord).filter(hasCoord)
-            .filter((v, i, a) => a.findIndex(x => x.name === v.name) === i)
-            .slice(0, 10);
-
-          const supermarketCoords = els
-            .filter(e => (tags.supermarkets || []).some(([k,v]) => e.tags?.[k] === v))
-            .map(getCoord).filter(hasCoord).slice(0, 10);
-
-          const gymCoords = els
-            .filter(e => (tags.gyms || []).some(([k,v]) => e.tags?.[k] === v))
-            .map(getCoord).filter(hasCoord).slice(0, 10);
+          const transitCoords = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLatLon)
+            .filter((v, i, a) => a.findIndex(x => x.name === v.name) === i).slice(0, 10);
+          const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLatLon).slice(0, 10);
+          const gymCoords = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLatLon).slice(0, 10);
 
           resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords, supermarketCoords, gymCoords });
         } catch (e) {
@@ -540,9 +528,9 @@ app.post("/api/amenities", async (req, res) => {
         const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
-        if (amenityData.transitCoords?.length)    m.transitCoords    = amenityData.transitCoords;
-        if (amenityData.supermarketCoords?.length) m.supermarketCoords = amenityData.supermarketCoords;
-        if (amenityData.gymCoords?.length)         m.gymCoords         = amenityData.gymCoords;
+        if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
+        if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
+        if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
 
         m.amenities = {
           pharmacies:   amenityData.pharmacies,
