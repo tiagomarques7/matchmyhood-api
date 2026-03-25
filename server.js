@@ -183,6 +183,22 @@ function formatVenue(venue, city) {
   return { name, description, googleMapsQuery: `${name} ${city}` };
 }
 
+// Fast enrichment — Foursquare venues only, no slow Overpass calls
+async function enrichMatchFast(match, destCity) {
+  if (!match.lat || !match.lng) return match;
+  try {
+    const [restaurants, bars] = await Promise.all([
+      searchFoursquare(match.lat, match.lng, "restaurant", "13000", 3),
+      searchFoursquare(match.lat, match.lng, "wine bar", "13003,13062", 3),
+    ]);
+    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity));
+    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity));
+  } catch (err) {
+    console.error("Fast enrichment error for", match.name, err.message);
+  }
+  return match;
+}
+
 // ── ENRICH WITH FOURSQUARE + OVERPASS ──────────────────────────────────────
 async function enrichMatch(match, destCity, intent) {
   if (!match.lat || !match.lng) return match;
@@ -198,24 +214,24 @@ async function enrichMatch(match, destCity, intent) {
     if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity));
 
     // All Overpass calls staggered to avoid rate limiting
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 100));
     const transitStations = await getNearestTransit(match.lat, match.lng);
     if (transitStations.length > 0) match.nearestMetro = transitStations;
 
     // For LIVE intent, get additional amenity counts
     if (intent === "move") {
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 200));
       const pharmacies = await queryOverpass(match.lat, match.lng, 700, "amenity", "pharmacy");
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
       const supermarkets = await queryOverpass(match.lat, match.lng, 700, "shop", "supermarket");
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
       const parks = await queryOverpass(match.lat, match.lng, 900, "leisure", "park");
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
       const gyms1 = await queryOverpass(match.lat, match.lng, 700, "leisure", "fitness_centre");
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
       const gyms2 = await queryOverpass(match.lat, match.lng, 700, "amenity", "gym");
       const gyms = gyms1 + gyms2;
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 150));
       const intlSchools = await queryOverpass(match.lat, match.lng, 2000, "amenity", "school");
 
       match.amenities = { pharmacies, supermarkets, parks, gyms, intlSchools };
@@ -370,10 +386,10 @@ app.post("/api/match", async (req, res) => {
       throw new Error("Invalid response format");
     }
 
-    // Enrich sequentially to avoid Overpass rate limits
+    // Fast enrichment only — Foursquare + transit (no slow Overpass amenity counts)
     const enriched = [];
     for (const m of matches) {
-      const result = await enrichMatch(m, safedestCity, currentIntent);
+      const result = await enrichMatchFast(m, safedestCity);
       enriched.push(result);
     }
     matches = enriched;
@@ -382,6 +398,59 @@ app.post("/api/match", async (req, res) => {
 
   } catch (err) {
     console.error("Error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── BACKGROUND AMENITIES ENDPOINT ───────────────────────────────────────────
+// Called by frontend after results are shown — enriches with slow Overpass data
+app.post("/api/amenities", async (req, res) => {
+  const { matches, destCity } = req.body;
+  if (!matches || !Array.isArray(matches)) {
+    return res.status(400).json({ error: "Missing matches" });
+  }
+
+  try {
+    const enriched = [];
+    for (const m of matches) {
+      if (!m.lat || !m.lng) { enriched.push(m); continue; }
+
+      try {
+        await new Promise(r => setTimeout(r, 100));
+        const transitStations = await getNearestTransit(m.lat, m.lng);
+        if (transitStations.length > 0) m.nearestMetro = transitStations;
+
+        await new Promise(r => setTimeout(r, 200));
+        const pharmacies = await queryOverpass(m.lat, m.lng, 700, "amenity", "pharmacy");
+        await new Promise(r => setTimeout(r, 150));
+        const supermarkets = await queryOverpass(m.lat, m.lng, 700, "shop", "supermarket");
+        await new Promise(r => setTimeout(r, 150));
+        const parks = await queryOverpass(m.lat, m.lng, 900, "leisure", "park");
+        await new Promise(r => setTimeout(r, 150));
+        const gyms1 = await queryOverpass(m.lat, m.lng, 700, "leisure", "fitness_centre");
+        await new Promise(r => setTimeout(r, 150));
+        const gyms2 = await queryOverpass(m.lat, m.lng, 700, "amenity", "gym");
+        await new Promise(r => setTimeout(r, 150));
+        const intlSchools = await queryOverpass(m.lat, m.lng, 2000, "amenity", "school");
+
+        m.amenities = {
+          pharmacies,
+          supermarkets,
+          parks,
+          gyms: gyms1 + gyms2,
+          intlSchools
+        };
+      } catch (e) {
+        console.error("Amenity error for", m.name, e.message);
+      }
+
+      enriched.push(m);
+    }
+
+    return res.json({ matches: enriched });
+
+  } catch (err) {
+    console.error("Amenities error:", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
