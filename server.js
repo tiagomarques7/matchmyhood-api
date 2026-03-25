@@ -77,28 +77,9 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          // Rate-limit: Overpass returns HTML — retry once after 8s
           if (data.trimStart().startsWith("<")) {
-            console.error("Overpass returned HTML (rate-limited) — retrying in 8s");
-            setTimeout(() => {
-              const req2 = https.request({
-                hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
-              }, (res2) => {
-                let d2 = "";
-                res2.on("data", c => d2 += c);
-                res2.on("end", () => {
-                  try {
-                    const p2 = JSON.parse(d2);
-                    if (p2.remark) console.error("Overpass remark:", p2.remark);
-                    resolve(p2);
-                  } catch { resolve(empty); }
-                });
-                res2.on("error", () => resolve(empty));
-              });
-              req2.on("error", () => resolve(empty));
-              req2.write(body); req2.end();
-            }, 8000);
+            console.error("Overpass returned HTML (rate-limited) — returning empty");
+            resolve(empty);
             return;
           }
           const parsed = JSON.parse(data);
@@ -211,42 +192,35 @@ function fetchAllAmenities(lat, lng, city) {
             .filter((v, i, a) => a.indexOf(v) === i)
             .slice(0, 4);
 
-          // Include transit station coordinates so the browser map can use them
-          // without making a second Overpass call
+          // Extract point coords for map pins (use center for ways/relations)
+          const getCoord = e => ({
+            lat: e.lat ?? e.center?.lat,
+            lon: e.lon ?? e.center?.lon,
+            name: e.tags?.name || ''
+          });
+          const hasCoord = c => c.lat && c.lon;
+
           const transitCoords = els
-            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && (e.lat || e.center?.lat))
-            .map(e => ({
-              name: e.tags?.name || 'Station',
-              lat: e.lat ?? e.center?.lat,
-              lon: e.lon ?? e.center?.lon
-            }))
+            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)))
+            .map(getCoord).filter(hasCoord)
             .filter((v, i, a) => a.findIndex(x => x.name === v.name) === i)
             .slice(0, 10);
 
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords });
+          const supermarketCoords = els
+            .filter(e => (tags.supermarkets || []).some(([k,v]) => e.tags?.[k] === v))
+            .map(getCoord).filter(hasCoord).slice(0, 10);
+
+          const gymCoords = els
+            .filter(e => (tags.gyms || []).some(([k,v]) => e.tags?.[k] === v))
+            .map(getCoord).filter(hasCoord).slice(0, 10);
+
+          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, bars, nearestMetro, transitCoords, supermarketCoords, gymCoords });
         } catch (e) {
           console.error("Overpass batch parse error:", e.message, data?.slice(0, 120));
           resolve(empty);
         }
       });
-      res.on("error", () => {
-        // Retry once after 8s pause if we get an error (rate limit recovery)
-        console.error("Overpass request error — retrying in 8s");
-        setTimeout(() => {
-          const req2 = https.request({
-            hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
-          }, (res2) => {
-            let d2 = "";
-            res2.on("data", c => d2 += c);
-            res2.on("end", () => {
-              try { resolve(JSON.parse(d2)); } catch { resolve(empty); }
-            });
-          });
-          req2.on("error", () => resolve(empty));
-          req2.write(body); req2.end();
-        }, 8000);
-      });
+      res.on("error", () => resolve(empty));
     });
 
     req.on("error", () => resolve(empty));
@@ -566,6 +540,9 @@ app.post("/api/amenities", async (req, res) => {
         const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
+        if (amenityData.transitCoords?.length)    m.transitCoords    = amenityData.transitCoords;
+        if (amenityData.supermarketCoords?.length) m.supermarketCoords = amenityData.supermarketCoords;
+        if (amenityData.gymCoords?.length)         m.gymCoords         = amenityData.gymCoords;
 
         m.amenities = {
           pharmacies:   amenityData.pharmacies,
@@ -577,8 +554,6 @@ app.post("/api/amenities", async (req, res) => {
           restaurants:  amenityData.restaurants,
           bars:         amenityData.bars,
         };
-        // Pass transit coords to browser for map pins — avoids second browser Overpass call
-        if (amenityData.transitCoords?.length) m.transitCoords = amenityData.transitCoords;
 
       } catch (e) {
         console.error("Amenity error for", m.name, e.message);
