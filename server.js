@@ -99,18 +99,21 @@ function fetchAllAmenities(lat, lng, city) {
   return new Promise((resolve) => {
     const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, nearestMetro: [] };
 
-    // Build union of all node queries
-    const parts = [`node["amenity"="pharmacy"](around:700,${lat},${lng});`];
+    // Build union of all nwr (node/way/relation) queries
+    // Parks, supermarkets, gyms, museums are almost always mapped as ways in OSM
+    // Using `nwr` ensures we don't miss them
+    const parts = [`nwr["amenity"="pharmacy"](around:700,${lat},${lng});`];
     for (const [k, v] of (tags.supermarkets || []))
-      parts.push(`node["${k}"="${v}"](around:700,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"](around:700,${lat},${lng});`);
     for (const [k, v] of (tags.gyms || []))
-      parts.push(`node["${k}"="${v}"](around:700,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"](around:700,${lat},${lng});`);
     for (const [k, v] of (tags.parks || []))
-      parts.push(`node["${k}"="${v}"](around:900,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"](around:900,${lat},${lng});`);
     for (const [k, v] of (tags.schools || []))
-      parts.push(`node["${k}"="${v}"](around:2000,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"](around:2000,${lat},${lng});`);
     for (const [k, v] of (tags.museums || []))
-      parts.push(`node["${k}"="${v}"](around:1500,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"](around:1500,${lat},${lng});`);
+    // Transit: node-only is fine here (entrances/stops are nodes)
     parts.push(
       `node["railway"="station"](around:800,${lat},${lng});`,
       `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
@@ -121,7 +124,7 @@ function fetchAllAmenities(lat, lng, city) {
       `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`
     );
 
-    const query = `[out:json][timeout:30];\n(\n${parts.join('\n')}\n);\nout tags;`;
+    const query = `[out:json][timeout:30];\n(\n${parts.join('\n')}\n);\nout center tags;`;
     const body = `data=${encodeURIComponent(query)}`;
 
     const req = https.request({
@@ -137,7 +140,15 @@ function fetchAllAmenities(lat, lng, city) {
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
         try {
-          const els = JSON.parse(data).elements || [];
+          const allEls = JSON.parse(data).elements || [];
+          // Deduplicate by type+id (nwr can return same place as way AND relation)
+          const seen = new Set();
+          const els = allEls.filter(e => {
+            const key = `${e.type}:${e.id}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
 
           const pharmacies = els.filter(e => e.tags?.amenity === "pharmacy").length;
 
@@ -315,15 +326,18 @@ async function enrichMatch(match, destCity, intent) {
 }
 
 // ── PROMPTS ─────────────────────────────────────────────────────────────────
-function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent) {
+function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent, excludeHood) {
   const vibeContext = safeVibes
     ? `\nThe traveller especially values: ${safeVibes}. Weight these heavily.`
+    : "";
+  const excludeContext = excludeHood
+    ? `\nDo NOT suggest "${excludeHood}" — the user has already seen it and wants a different option.`
     : "";
 
   if (intent === "move") {
     return `You are MatchMyHood, an expert neighbourhood matching tool for people relocating.
 
-A person loves "${safehomeHood}" in ${safehomeCity}. They are RELOCATING long-term to ${safedestCity}.${vibeContext}
+A person loves "${safehomeHood}" in ${safehomeCity}. They are RELOCATING long-term to ${safedestCity}.${vibeContext}${excludeContext}
 
 Find the single BEST matching neighbourhood in ${safedestCity} based on character, daily life quality, community feel, cost, and liveability.
 
@@ -376,7 +390,7 @@ Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact 
   } else {
     return `You are MatchMyHood, an expert neighbourhood matching tool for travellers.
 
-A person loves "${safehomeHood}" in ${safehomeCity}. They are VISITING ${safedestCity} as a traveller.${vibeContext}
+A person loves "${safehomeHood}" in ${safehomeCity}. They are VISITING ${safedestCity} as a traveller.${vibeContext}${excludeContext}
 
 Find the single BEST matching neighbourhood in ${safedestCity} to stay in, based on character, energy, food scene, nightlife, and walkability.
 
@@ -429,7 +443,7 @@ Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact 
 
 // ── MAIN ROUTE ───────────────────────────────────────────────────────────────
 app.post("/api/match", async (req, res) => {
-  const { homeCity, homeHood, destCity, vibes, intent } = req.body;
+  const { homeCity, homeHood, destCity, vibes, intent, excludeHood } = req.body;
 
   if (!homeCity || !homeHood || !destCity) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -443,11 +457,12 @@ app.post("/api/match", async (req, res) => {
   const safehomeHood = sanitise(homeHood);
   const safedestCity = sanitise(destCity);
   const safeVibes = Array.isArray(vibes) ? vibes.map(v => sanitise(v)).join(", ") : "";
+  const safeExcludeHood = excludeHood ? sanitise(excludeHood) : null;
   const currentIntent = intent === "move" ? "move" : "visit";
 
   try {
     // Step 1: Claude — neighbourhood matches with intent-specific fields
-    const prompt = buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, currentIntent);
+    const prompt = buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, currentIntent, safeExcludeHood);
     const text = await callClaude(prompt);
     const cleaned = text.replace(/```json|```/g, "").trim();
     let matches = JSON.parse(cleaned);
