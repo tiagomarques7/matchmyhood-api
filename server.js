@@ -171,113 +171,57 @@ function fetchAllAmenities(lat, lng, city) {
     await new Promise(r => setTimeout(r, gap));
     _lastOverpassCall = Date.now();
 
-    const req = https.request({
-      hostname: "overpass-api.de",
-      path: "/api/interpreter",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(body),
-      },
-    }, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        // Rate-limited: Overpass returns HTML — wait 35s and retry once
-        if (data.trimStart().startsWith("<")) {
-          console.error("Overpass rate-limited (HTML) — retrying in 60s");
-          setTimeout(() => {
-            _lastOverpassCall = Date.now();
-            const req2 = https.request({
-              hostname: "overpass.kumi.systems", path: "/api/interpreter", method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
-            }, (res2) => {
-              let d2 = "";
-              res2.on("data", c => d2 += c);
-              res2.on("end", () => {
-                if (d2.trimStart().startsWith("<")) { console.error("Overpass still rate-limited after retry"); resolve(empty); return; }
-                try { processOverpass(d2); } catch(e) { console.error("Retry parse error:", e.message); resolve(empty); }
-              });
-              res2.on("error", () => resolve(empty));
-            });
-            req2.on("error", () => resolve(empty));
-            req2.write(body); req2.end();
-          }, 60000);
-          return;
-        }
-        try { processOverpass(data); }
-        catch(e) { console.error("Overpass parse error:", e.message, data?.slice(0,120)); resolve(empty); }
+    // Mirror cascade — try each in order until one returns valid JSON
+    // z./lz4. are separate server pools from main overpass-api.de
+    const MIRRORS = [
+      "overpass-api.de",
+      "z.overpass-api.de",
+      "lz4.overpass-api.de",
+      "overpass.kumi.systems",
+    ];
 
-        function processOverpass(data) {
-          const parsed = JSON.parse(data);
-          if (parsed.remark) console.error("Overpass remark:", parsed.remark);
-          const allEls = parsed.elements || [];
-          if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
-          const seen = new Set();
-          const els = allEls.filter(e => {
-            const key = `${e.type}:${e.id}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
+    async function tryMirror(hostname) {
+      return new Promise((res, rej) => {
+        const r = https.request({
+          hostname, path: "/api/interpreter", method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+        }, (response) => {
+          let d = "";
+          response.on("data", chunk => d += chunk);
+          response.on("end", () => {
+            if (d.trimStart().startsWith("<")) rej(new Error(`${hostname} rate-limited`));
+            else res(d);
           });
-
-          const pharmacies  = els.filter(e => e.tags?.amenity === "pharmacy").length;
-          const restaurants = els.filter(e => e.tags?.amenity === "restaurant").length;
-          const cafes       = els.filter(e => e.tags?.amenity === "cafe").length;
-          const bars        = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
-
-          const count = (tagPairs) => els.filter(e =>
-            tagPairs.some(([k, v]) => e.tags?.[k] === v)
-          ).length;
-
-          const supermarkets = count(tags.supermarkets || []);
-          const gyms         = count(tags.gyms || []);
-          const parks        = els.filter(e => (tags.parks||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
-          const intlSchools  = els.filter(e => {
-            if (!(tags.schools||[]).some(([k,v]) => e.tags?.[k]===v)) return false;
-            const n = (e.tags?.name || '').toLowerCase();
-            return n.includes('international') || n.includes('british') ||
-                   n.includes('american') || n.includes('french') ||
-                   n.includes('german') || n.includes('lycée') ||
-                   n.includes('deutsch') || n.includes('escola inter');
-          }).length;
-          const museums      = count(tags.museums || []);
-
-          const TRANSIT_MATCHERS = [
-            e => e.tags?.railway === "station",
-            e => e.tags?.railway === "subway_entrance",
-            e => e.tags?.railway === "tram_stop",
-            e => e.tags?.railway === "halt",
-            e => e.tags?.station === "subway",
-            e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
-          ];
-          const nearestMetro = els
-            .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
-            .map(e => e.tags.name)
-            .filter((v, i, a) => a.indexOf(v) === i)
-            .slice(0, 4);
-
-          const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
-          const hasLL = c => c.lat && c.lon;
-          const transitCoords     = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
-            .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
-          const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
-          const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
-          const museumCoords      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,15);
-          const cafeCoords        = els.filter(e => e.tags?.amenity === "cafe").map(coord).filter(hasLL).slice(0,20);
-          const restaurantCoords  = els.filter(e => e.tags?.amenity === "restaurant").map(coord).filter(hasLL).slice(0,40);
-          const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
-
-          resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars, nearestMetro,
-                    transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
-        }
+          response.on("error", rej);
+        });
+        r.on("error", rej);
+        r.write(body);
+        r.end();
       });
-      res.on("error", () => resolve(empty));
-    });
+    }
 
-    req.on("error", () => resolve(empty));
-    req.write(body);
-    req.end();
+    let rawData = null;
+    for (const mirror of MIRRORS) {
+      try {
+        rawData = await tryMirror(mirror);
+        console.log(`Overpass ${mirror} OK — ${JSON.parse(rawData).elements?.length ?? 0} elements`);
+        break;
+      } catch(e) {
+        console.error(`Overpass ${mirror} failed: ${e.message}`);
+        if (mirror !== MIRRORS[MIRRORS.length - 1]) {
+          await new Promise(r => setTimeout(r, 2000)); // 2s between mirror attempts
+        }
+      }
+    }
+
+    if (!rawData) {
+      console.error("All Overpass mirrors failed — returning empty");
+      resolve(empty);
+      return;
+    }
+
+    try { processOverpass(rawData); }
+    catch(e) { console.error("Overpass parse error:", e.message, rawData?.slice(0,120)); resolve(empty); }
   });
 }
 
