@@ -91,6 +91,36 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
   });
 }
 
+
+// Count venues via Foursquare — used for commercial amenity counts
+// More accurate than OSM for restaurants, bars, coffee, gyms, attractions
+function countFoursquare(lat, lng, categories, radius = 600) {
+  return new Promise((resolve) => {
+    const params = new URLSearchParams({
+      ll: `${lat},${lng}`,
+      categories: categories,
+      radius: radius,
+      limit: 50,
+      fields: 'fsq_id,name,geocodes'
+    });
+    const req = https.request({
+      hostname: 'api.foursquare.com',
+      path: `/v3/places/search?${params.toString()}`,
+      method: 'GET',
+      headers: { 'Authorization': FOURSQUARE_KEY, 'Accept': 'application/json' },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve((JSON.parse(data).results || []).length); }
+        catch { resolve(0); }
+      });
+      res.on('error', () => resolve(0));
+    });
+    req.on('error', () => resolve(0));
+    req.end();
+  });
+}
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
 let _lastOverpassCall = 0;
@@ -203,7 +233,14 @@ function fetchAllAmenities(lat, lng, city) {
           const supermarkets = count(tags.supermarkets || []);
           const gyms         = count(tags.gyms || []);
           const parks        = els.filter(e => (tags.parks||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
-          const intlSchools  = count(tags.schools || []);
+          const intlSchools  = els.filter(e => {
+            if (!(tags.schools||[]).some(([k,v]) => e.tags?.[k]===v)) return false;
+            const n = (e.tags?.name || '').toLowerCase();
+            return n.includes('international') || n.includes('british') ||
+                   n.includes('american') || n.includes('french') ||
+                   n.includes('german') || n.includes('lycée') ||
+                   n.includes('deutsch') || n.includes('escola inter');
+          }).length;
           const museums      = count(tags.museums || []);
 
           const TRANSIT_MATCHERS = [
@@ -551,8 +588,16 @@ app.post("/api/amenities", async (req, res) => {
       if (!m.lat || !m.lng) { enriched.push(m); continue; }
 
       try {
-        // ONE batched Overpass call per neighbourhood
-        const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity);
+        // ONE batched Overpass call (civic: parks, stations, pharmacies, supermarkets, schools)
+        // + Foursquare counts (commercial: restaurants, bars, coffee, gyms, attractions)
+        const [amenityData, fsqRestaurants, fsqBars, fsqCoffee, fsqGyms, fsqAttractions] = await Promise.all([
+          fetchAllAmenities(m.lat, m.lng, destCity),
+          countFoursquare(m.lat, m.lng, '13065', 600),       // Food
+          countFoursquare(m.lat, m.lng, '13003,13062', 600), // Bar + Pub
+          countFoursquare(m.lat, m.lng, '13035', 600),       // Coffee Shop
+          countFoursquare(m.lat, m.lng, '18011', 600),       // Gym/Fitness
+          countFoursquare(m.lat, m.lng, '10027,16032', 600), // Museum + Monument/Landmark (no gallery)
+        ]);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
         if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
@@ -564,15 +609,15 @@ app.post("/api/amenities", async (req, res) => {
         if (amenityData.barCoords?.length)          m.barCoords          = amenityData.barCoords;
 
         m.amenities = {
-          pharmacies:   amenityData.pharmacies,
-          supermarkets: amenityData.supermarkets,
-          parks:        amenityData.parks,
-          gyms:         amenityData.gyms,
-          intlSchools:  amenityData.intlSchools,
-          museums:      amenityData.museums,
-          restaurants:  amenityData.restaurants,
-          cafes:        amenityData.cafes,
-          bars:         amenityData.bars,
+          pharmacies:   amenityData.pharmacies,            // OSM — reliable
+          supermarkets: amenityData.supermarkets,          // OSM — reliable
+          parks:        amenityData.parks,                 // OSM — best source
+          gyms:         fsqGyms || amenityData.gyms,       // Foursquare > OSM
+          intlSchools:  amenityData.intlSchools,           // OSM — filtered
+          museums:      fsqAttractions || amenityData.museums, // Foursquare > OSM
+          restaurants:  fsqRestaurants || amenityData.restaurants, // Foursquare > OSM
+          cafes:        fsqCoffee || amenityData.cafes,    // Foursquare > OSM
+          bars:         fsqBars || amenityData.bars,       // Foursquare > OSM
         };
 
       } catch (e) {
@@ -592,39 +637,20 @@ app.post("/api/amenities", async (req, res) => {
   }
 });
 
-// ── NOMINATIM PROXY ─────────────────────────────────────────────────────────
-// Browser can't call Nominatim directly (CORS). Server proxies it.
-// Rate limit: 1 req/sec enforced by frontend serial queue — server just forwards.
 app.get("/api/nominatim", async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: "Missing q param" });
-
   const decoded = decodeURIComponent(q);
   const path = `/search?q=${encodeURIComponent(decoded)}&format=geojson&polygon_geojson=1&limit=1`;
-
   const nomReq = https.request({
-    hostname: "nominatim.openstreetmap.org",
-    path,
-    method: "GET",
-    headers: {
-      // Nominatim requires a User-Agent identifying the app
-      "User-Agent": "MatchMyHood/1.0 (matchmyhood.com)",
-      "Accept": "application/json",
-    },
+    hostname: "nominatim.openstreetmap.org", path, method: "GET",
+    headers: { "User-Agent": "MatchMyHood/1.0 (matchmyhood.com)", "Accept": "application/json" },
   }, (nomRes) => {
     let data = "";
     nomRes.on("data", chunk => data += chunk);
-    nomRes.on("end", () => {
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.send(data);
-    });
+    nomRes.on("end", () => { res.setHeader("Content-Type","application/json"); res.setHeader("Access-Control-Allow-Origin","*"); res.send(data); });
   });
-
-  nomReq.on("error", (e) => {
-    console.error("Nominatim proxy error:", e.message);
-    res.status(500).json({ error: "Nominatim unavailable" });
-  });
+  nomReq.on("error", (e) => { console.error("Nominatim proxy error:", e.message); res.status(500).json({ error: "Nominatim unavailable" }); });
   nomReq.end();
 });
 
