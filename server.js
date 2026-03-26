@@ -220,6 +220,70 @@ function fetchAllAmenities(lat, lng, city) {
       return;
     }
 
+    function processOverpass(data) {
+      const parsed = JSON.parse(data);
+      if (parsed.remark) console.error("Overpass remark:", parsed.remark);
+      const allEls = parsed.elements || [];
+      if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
+      const seen = new Set();
+      const els = allEls.filter(e => {
+        const key = `${e.type}:${e.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const pharmacies  = els.filter(e => e.tags?.amenity === "pharmacy").length;
+      const restaurants = els.filter(e => e.tags?.amenity === "restaurant").length;
+      const cafes       = els.filter(e => e.tags?.amenity === "cafe").length;
+      const bars        = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
+
+      const count = (tagPairs) => els.filter(e =>
+        tagPairs.some(([k, v]) => e.tags?.[k] === v)
+      ).length;
+
+      const supermarkets = count(tags.supermarkets || []);
+      const gyms         = count(tags.gyms || []);
+      const parks        = els.filter(e => (tags.parks||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
+      const intlSchools  = els.filter(e => {
+        if (!(tags.schools||[]).some(([k,v]) => e.tags?.[k]===v)) return false;
+        const n = (e.tags?.name || '').toLowerCase();
+        return n.includes('international') || n.includes('british') ||
+               n.includes('american') || n.includes('french') ||
+               n.includes('german') || n.includes('lycée') ||
+               n.includes('deutsch') || n.includes('escola inter');
+      }).length;
+      const museums      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
+
+      const TRANSIT_MATCHERS = [
+        e => e.tags?.railway === "station",
+        e => e.tags?.railway === "subway_entrance",
+        e => e.tags?.railway === "tram_stop",
+        e => e.tags?.railway === "halt",
+        e => e.tags?.station === "subway",
+        e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
+      ];
+      const nearestMetro = els
+        .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+        .map(e => e.tags.name)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 4);
+
+      const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
+      const hasLL = c => c.lat && c.lon;
+      const transitCoords     = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+        .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+      const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+      const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+      const museumCoords      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).map(coord).filter(hasLL).slice(0,15);
+      const cafeCoords        = els.filter(e => e.tags?.amenity === "cafe").map(coord).filter(hasLL).slice(0,20);
+      const restaurantCoords  = els.filter(e => e.tags?.amenity === "restaurant").map(coord).filter(hasLL).slice(0,40);
+      const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
+
+      resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars, nearestMetro,
+                transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
+    }
+
     try { processOverpass(rawData); }
     catch(e) { console.error("Overpass parse error:", e.message, rawData?.slice(0,120)); resolve(empty); }
   });
