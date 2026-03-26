@@ -155,11 +155,11 @@ function fetchAllAmenities(lat, lng, city) {
       res.on("end", () => {
         // Rate-limited: Overpass returns HTML — wait 35s and retry once
         if (data.trimStart().startsWith("<")) {
-          console.error("Overpass rate-limited (HTML) — retrying in 35s");
+          console.error("Overpass rate-limited (HTML) — retrying in 60s");
           setTimeout(() => {
             _lastOverpassCall = Date.now();
             const req2 = https.request({
-              hostname: "overpass-api.de", path: "/api/interpreter", method: "POST",
+              hostname: "overpass.kumi.systems", path: "/api/interpreter", method: "POST",
               headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
             }, (res2) => {
               let d2 = "";
@@ -172,7 +172,7 @@ function fetchAllAmenities(lat, lng, city) {
             });
             req2.on("error", () => resolve(empty));
             req2.write(body); req2.end();
-          }, 35000);
+          }, 60000);
           return;
         }
         try { processOverpass(data); }
@@ -599,7 +599,8 @@ app.get("/api/nominatim", async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: "Missing q param" });
 
-  const path = `/search?q=${q}&format=geojson&polygon_geojson=1&limit=1`;
+  const decoded = decodeURIComponent(q);
+  const path = `/search?q=${encodeURIComponent(decoded)}&format=geojson&polygon_geojson=1&limit=1`;
 
   const nomReq = https.request({
     hostname: "nominatim.openstreetmap.org",
