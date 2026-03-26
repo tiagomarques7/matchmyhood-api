@@ -637,6 +637,40 @@ app.post("/api/amenities", async (req, res) => {
   }
 });
 
+
+// ── OVERPASS BROWSER PROXY ───────────────────────────────────────────────────
+// Browser can't call Overpass directly at scale (rate limits + CORS on some endpoints).
+// This proxy forwards park polygon queries from the browser through the server.
+app.get("/api/overpass", async (req, res) => {
+  const data = req.query.data;
+  if (!data) return res.status(400).json({ error: 'Missing data param' });
+
+  const body = 'data=' + data;
+  const proxyReq = https.request({
+    hostname: 'overpass-api.de',
+    path: '/api/interpreter',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(body),
+    },
+  }, (proxyRes) => {
+    let result = '';
+    proxyRes.on('data', chunk => result += chunk);
+    proxyRes.on('end', () => {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.send(result);
+    });
+  });
+  proxyReq.on('error', (e) => {
+    console.error('Overpass proxy error:', e.message);
+    res.status(500).json({ error: 'Overpass unavailable' });
+  });
+  proxyReq.write(body);
+  proxyReq.end();
+});
+
 app.get("/api/nominatim", async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: "Missing q param" });
