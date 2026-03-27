@@ -366,9 +366,13 @@ async function enrichMatchFast(match, destCity) {
       searchFoursquare(match.lat, match.lng, "wine bar", "13003,13062", 3),
     ]);
     if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
+    else match.top3Restaurants = [];
     if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity, match.name));
+    else match.top3WineBars = [];
   } catch (err) {
     console.error("Fast enrichment error for", match.name, err.message);
+    match.top3Restaurants = match.top3Restaurants || [];
+    match.top3WineBars = match.top3WineBars || [];
   }
   return match;
 }
