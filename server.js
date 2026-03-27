@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-const FOURSQUARE_KEY = process.env.FOURSQUARE_KEY || "244GKZ3SYN0QA4CMYR4VXURO3PLM00MUWHAXLJUV04UE05T1";
+const FOURSQUARE_KEY = process.env.FOURSQUARE_KEY || "I2KUS22ZRGOYHVPC2EAF2DNY5YUUDTCI4VQ5ELC5EBQWSP34";
 
 // ── CLAUDE API ──────────────────────────────────────────────────────────────
 function callClaude(prompt) {
