@@ -803,21 +803,27 @@ out geom qt;`;
   try {
     const parsed = JSON.parse(rawData);
     const relations = parsed.elements || [];
-    const seen = new Set();
     const lines = [];
+    const refColourMap = {}; // same ref = same colour across directions
     let colourIdx = 0;
 
     for (const rel of relations) {
       const name = rel.tags?.name || rel.tags?.ref || 'Transit Line';
       const ref  = rel.tags?.ref || '';
-      const key  = name + ref;
-      if (seen.has(key)) continue;
-      seen.add(key);
 
-      // Assign colour: use OSM colour tag if present, else cycle through palette
+      // Assign colour: OSM colour tag first, then consistent per ref, then palette
       const osmColour = rel.tags?.colour || rel.tags?.color;
-      const colour = osmColour || LINE_COLOURS[colourIdx % LINE_COLOURS.length];
-      if (!osmColour) colourIdx++;
+      let colour;
+      if (osmColour) {
+        colour = osmColour;
+        if (ref && !refColourMap[ref]) refColourMap[ref] = osmColour;
+      } else if (ref && refColourMap[ref]) {
+        colour = refColourMap[ref]; // same ref = same colour
+      } else {
+        colour = LINE_COLOURS[colourIdx % LINE_COLOURS.length];
+        if (ref) refColourMap[ref] = colour;
+        colourIdx++;
+      }
 
       // Build coordinates from member way geometries
       const coords = [];
@@ -826,7 +832,6 @@ out geom qt;`;
         if (member.type === 'way' && member.geometry?.length) {
           coords.push(member.geometry.map(p => [p.lon, p.lat]));
         }
-        // Extract stop/platform nodes — these sit exactly on the line
         if (member.type === 'node' && member.lat && member.lon &&
             (member.role === 'stop' || member.role === 'platform' || member.role === 'stop_entry_only' || member.role === 'stop_exit_only')) {
           stops.push([member.lon, member.lat]);
