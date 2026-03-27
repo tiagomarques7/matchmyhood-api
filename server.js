@@ -754,11 +754,14 @@ app.post("/api/transitlines", async (req, res) => {
   const { lat, lng } = req.body;
   if (!lat || !lng) return res.status(400).json({ error: 'Missing lat/lng' });
 
+  // Use bbox of ~40km around the point to cover the full city
+  const delta = 0.35; // ~40km
+  const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
+
   const query = `
-[out:json][timeout:30];
+[out:json][timeout:45][maxsize:1073741824];
 (
-  relation["route"~"subway|light_rail|tram"]["name"](around:50000,${lat},${lng});
-  relation["route"~"subway|light_rail|tram"]["ref"](around:50000,${lat},${lng});
+  relation["route"~"subway|light_rail|tram"]["type"!="route_master"](${bbox});
 );
 out geom qt;`;
 
