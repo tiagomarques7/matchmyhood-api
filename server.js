@@ -161,7 +161,17 @@ function fetchAllAmenities(lat, lng, city) {
       `node["public_transport"="stop_position"]["tram"="yes"](around:800,${lat},${lng});`,
       `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`,
       `node["highway"="bus_stop"](around:400,${lat},${lng});`,
-      `node["public_transport"="stop_position"]["bus"="yes"](around:400,${lat},${lng});`
+      `node["public_transport"="stop_position"]["bus"="yes"](around:400,${lat},${lng});`,
+      // Entertainment & culture
+      `nwr["amenity"="cinema"](around:1000,${lat},${lng});`,
+      `nwr["amenity"="theatre"](around:1000,${lat},${lng});`,
+      `nwr["amenity"="music_venue"](around:1000,${lat},${lng});`,
+      `nwr["amenity"="nightclub"](around:800,${lat},${lng});`,
+      `nwr["amenity"="marketplace"](around:1000,${lat},${lng});`,
+      `nwr["shop"="market"](around:1000,${lat},${lng});`,
+      // Hospitals (LIVE mode)
+      `nwr["amenity"="hospital"](around:1500,${lat},${lng});`,
+      `nwr["amenity"="clinic"](around:1000,${lat},${lng});`
     );
 
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
@@ -257,6 +267,12 @@ function fetchAllAmenities(lat, lng, city) {
       }).length;
       const museums      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
 
+      const cinemas      = els.filter(e => e.tags?.amenity === "cinema").length;
+      const theatres     = els.filter(e => e.tags?.amenity === "theatre").length;
+      const musicVenues  = els.filter(e => e.tags?.amenity === "music_venue" || e.tags?.amenity === "nightclub").length;
+      const markets      = els.filter(e => e.tags?.amenity === "marketplace" || e.tags?.shop === "market").length;
+      const hospitals    = els.filter(e => e.tags?.amenity === "hospital" || e.tags?.amenity === "clinic").length;
+
       const HEAVY_TRANSIT_MATCHERS = [
         e => e.tags?.railway === "station",
         e => e.tags?.railway === "subway_entrance",
@@ -298,7 +314,9 @@ function fetchAllAmenities(lat, lng, city) {
       const restaurantCoords  = els.filter(e => e.tags?.amenity === "restaurant").map(coord).filter(hasLL).slice(0,40);
       const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
 
-      resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars,
+      resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums,
+                cinemas, theatres, musicVenues, markets, hospitals,
+                restaurants, cafes, bars,
                 nearestMetro, nearestBus, busCount, busOnly,
                 transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
     }
@@ -620,13 +638,17 @@ app.post("/api/amenities", async (req, res) => {
       try {
         // ONE batched Overpass call (civic: parks, stations, pharmacies, supermarkets, schools)
         // + Foursquare counts (commercial: restaurants, bars, coffee, gyms, attractions)
-        const [amenityData, fsqRestaurants, fsqBars, fsqCoffee, fsqGyms, fsqAttractions] = await Promise.all([
+        const [amenityData, fsqRestaurants, fsqBars, fsqCoffee, fsqGyms, fsqAttractions, fsqMusic, fsqCinema, fsqTheatre, fsqMarkets] = await Promise.all([
           fetchAllAmenities(m.lat, m.lng, destCity),
           countFoursquare(m.lat, m.lng, '13065', 600),       // Food
           countFoursquare(m.lat, m.lng, '13003,13062', 600), // Bar + Pub
           countFoursquare(m.lat, m.lng, '13035', 600),       // Coffee Shop
           countFoursquare(m.lat, m.lng, '18011', 600),       // Gym/Fitness
-          countFoursquare(m.lat, m.lng, '10027,16032', 600), // Museum + Monument/Landmark (no gallery)
+          countFoursquare(m.lat, m.lng, '10027,16032', 600), // Museum + Monument/Landmark
+          countFoursquare(m.lat, m.lng, '10032,10012', 800), // Music venue + Nightclub
+          countFoursquare(m.lat, m.lng, '10024', 1000),      // Cinema
+          countFoursquare(m.lat, m.lng, '10048', 1000),      // Theatre/Performing arts
+          countFoursquare(m.lat, m.lng, '12061', 1000),      // Food market
         ]);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
@@ -642,15 +664,20 @@ app.post("/api/amenities", async (req, res) => {
         if (amenityData.barCoords?.length)          m.barCoords          = amenityData.barCoords;
 
         m.amenities = {
-          pharmacies:   amenityData.pharmacies,            // OSM — reliable
-          supermarkets: amenityData.supermarkets,          // OSM — reliable
-          parks:        amenityData.parks,                 // OSM — best source
-          gyms:         fsqGyms || amenityData.gyms,       // Foursquare > OSM
-          intlSchools:  amenityData.intlSchools,           // OSM — filtered
-          museums:      fsqAttractions || amenityData.museums, // Foursquare > OSM
-          restaurants:  fsqRestaurants || amenityData.restaurants, // Foursquare > OSM
-          cafes:        fsqCoffee || amenityData.cafes,    // Foursquare > OSM
-          bars:         fsqBars || amenityData.bars,       // Foursquare > OSM
+          pharmacies:   amenityData.pharmacies,
+          supermarkets: amenityData.supermarkets,
+          parks:        amenityData.parks,
+          gyms:         fsqGyms || amenityData.gyms,
+          intlSchools:  amenityData.intlSchools,
+          museums:      fsqAttractions || amenityData.museums,
+          restaurants:  fsqRestaurants || amenityData.restaurants,
+          cafes:        fsqCoffee || amenityData.cafes,
+          bars:         fsqBars || amenityData.bars,
+          musicVenues:  fsqMusic || amenityData.musicVenues,
+          cinemas:      fsqCinema || amenityData.cinemas,
+          theatres:     fsqTheatre || amenityData.theatres,
+          markets:      fsqMarkets || amenityData.markets,
+          hospitals:    amenityData.hospitals,
         };
 
       } catch (e) {
