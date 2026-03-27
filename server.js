@@ -755,12 +755,12 @@ app.post("/api/transitlines", async (req, res) => {
   if (!lat || !lng) return res.status(400).json({ error: 'Missing lat/lng' });
 
   const query = `
-[out:json][timeout:20];
+[out:json][timeout:30];
 (
-  relation["route"~"subway|light_rail|tram|train"]["name"](around:2000,${lat},${lng});
-  relation["route"~"subway|light_rail|tram"]["ref"](around:2000,${lat},${lng});
+  relation["route"~"subway|light_rail|tram"]["name"](around:50000,${lat},${lng});
+  relation["route"~"subway|light_rail|tram"]["ref"](around:50000,${lat},${lng});
 );
-out geom;`;
+out geom qt;`;
 
   const body = `data=${encodeURIComponent(query)}`;
 
