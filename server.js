@@ -68,7 +68,7 @@ function searchGoogle(lat, lng, types, limit = 3) {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
-        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress",
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress,places.photos,places.currentOpeningHours,places.websiteUri",
         "Content-Length": Buffer.byteLength(body),
       },
     }, (res) => {
@@ -108,7 +108,11 @@ function countGoogle(lat, lng, types, radius = 600) {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
-        try { resolve((JSON.parse(data).places || []).length); }
+        try {
+          const count = (JSON.parse(data).places || []).length;
+          // Google caps at 20 — return "20+" string when capped so UI shows there are more
+          resolve(count >= 20 ? "20+" : count);
+        }
         catch { resolve(0); }
       });
       res.on("error", () => resolve(0));
@@ -346,14 +350,21 @@ function fetchAllAmenities(lat, lng, city, polygon) {
 
 // Format Foursquare venue
 function formatVenue(venue, city, hoodName) {
-  const name = venue.displayName?.text || venue.name || "Unknown";
+  const name = venue.displayName?.text || "Unknown";
   const address = venue.shortFormattedAddress || "";
   const rating = venue.rating ? `${venue.rating.toFixed(1)}★` : "";
   const priceMap = { PRICE_LEVEL_INEXPENSIVE: "€", PRICE_LEVEL_MODERATE: "€€", PRICE_LEVEL_EXPENSIVE: "€€€", PRICE_LEVEL_VERY_EXPENSIVE: "€€€€" };
   const price = priceMap[venue.priceLevel] || "";
   const parts = [address || hoodName, rating, price].filter(Boolean);
   const description = parts.join(' · ') || `In ${hoodName}`;
-  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}` };
+  const photoRef = venue.photos?.[0]?.name || null;
+  const photoUrl = photoRef
+    ? `https://places.googleapis.com/v1/${photoRef}/media?maxHeightPx=200&maxWidthPx=300&key=${GOOGLE_PLACES_KEY}`
+    : null;
+  const isOpen = venue.currentOpeningHours?.openNow;
+  const openStatus = isOpen === true ? 'Open now' : isOpen === false ? 'Closed' : null;
+  const website = venue.websiteUri || null;
+  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}`, photoUrl, openStatus, website };
 }
 
 // Fast enrichment — Google Places venues only, no slow Overpass calls
@@ -642,20 +653,8 @@ app.post("/api/amenities", async (req, res) => {
       if (!m.lat || !m.lng) { enriched.push(m); continue; }
 
       try {
-        // ONE batched Overpass call (civic: parks, stations, pharmacies, supermarkets, schools)
-        // + Foursquare counts (commercial: restaurants, bars, coffee, gyms, attractions)
-        const [amenityData, fsqRestaurants, fsqBars, fsqCoffee, fsqGyms, fsqAttractions, fsqMusic, fsqCinema, fsqTheatre, fsqMarkets] = await Promise.all([
-          fetchAllAmenities(m.lat, m.lng, destCity, m._polygon || null),
-          countGoogle(m.lat, m.lng, ["restaurant"], 600),                           // Food
-          countGoogle(m.lat, m.lng, ["bar", "wine_bar"], 600),                      // Bar + Pub
-          countGoogle(m.lat, m.lng, ["cafe", "coffee_shop"], 600),                  // Coffee
-          countGoogle(m.lat, m.lng, ["gym", "fitness_center"], 600),                // Gym/Fitness
-          countGoogle(m.lat, m.lng, ["museum", "tourist_attraction"], 600),         // Museum + Attraction
-          countGoogle(m.lat, m.lng, ["night_club", "live_music_venue"], 800),       // Music venue + Nightclub
-          countGoogle(m.lat, m.lng, ["movie_theater"], 1000),                       // Cinema
-          countGoogle(m.lat, m.lng, ["performing_arts_theater"], 1000),             // Theatre
-          countGoogle(m.lat, m.lng, ["market", "food_market"], 1000),               // Food market
-        ]);
+        // ONE batched Overpass call — all counts + coords from OSM (accurate, no API cap)
+        const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity, m._polygon || null);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
         if (amenityData.nearestBus?.length > 0)  m.nearestBus   = amenityData.nearestBus;
@@ -673,16 +672,16 @@ app.post("/api/amenities", async (req, res) => {
           pharmacies:   amenityData.pharmacies,
           supermarkets: amenityData.supermarkets,
           parks:        amenityData.parks,
-          gyms:         fsqGyms || amenityData.gyms,
+          gyms:         amenityData.gyms,
           intlSchools:  amenityData.intlSchools,
-          museums:      fsqAttractions || amenityData.museums,
-          restaurants:  fsqRestaurants || amenityData.restaurants,
-          cafes:        fsqCoffee || amenityData.cafes,
-          bars:         fsqBars || amenityData.bars,
-          musicVenues:  fsqMusic || amenityData.musicVenues,
-          cinemas:      fsqCinema || amenityData.cinemas,
-          theatres:     fsqTheatre || amenityData.theatres,
-          markets:      fsqMarkets || amenityData.markets,
+          museums:      amenityData.museums,
+          restaurants:  amenityData.restaurants,
+          cafes:        amenityData.cafes,
+          bars:         amenityData.bars,
+          musicVenues:  amenityData.musicVenues,
+          cinemas:      amenityData.cinemas,
+          theatres:     amenityData.theatres,
+          markets:      amenityData.markets,
           hospitals:    amenityData.hospitals,
           stations:     amenityData.stationCount || 0,
         };
