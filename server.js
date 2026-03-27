@@ -818,14 +818,20 @@ out geom;`;
 
       // Build coordinates from member way geometries
       const coords = [];
+      const stops = [];
       for (const member of (rel.members || [])) {
         if (member.type === 'way' && member.geometry?.length) {
           coords.push(member.geometry.map(p => [p.lon, p.lat]));
         }
+        // Extract stop/platform nodes — these sit exactly on the line
+        if (member.type === 'node' && member.lat && member.lon &&
+            (member.role === 'stop' || member.role === 'platform' || member.role === 'stop_entry_only' || member.role === 'stop_exit_only')) {
+          stops.push([member.lon, member.lat]);
+        }
       }
 
       if (coords.length > 0) {
-        lines.push({ name, ref, colour, coords });
+        lines.push({ name, ref, colour, coords, stops });
       }
     }
 
