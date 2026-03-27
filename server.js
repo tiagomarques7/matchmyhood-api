@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-const FOURSQUARE_KEY = process.env.FOURSQUARE_KEY || "I2KUS22ZRGOYHVPC2EAF2DNY5YUUDTCI4VQ5ELC5EBQWSP34";
+const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_KEY || "AIzaSyAvKFFCzz8O3-y_vRTdMdrbl16bHMgpXCA";
 
 // ── CLAUDE API ──────────────────────────────────────────────────────────────
 function callClaude(prompt) {
@@ -51,78 +51,74 @@ function callClaude(prompt) {
   });
 }
 
-// ── FOURSQUARE API ──────────────────────────────────────────────────────────
-function searchFoursquare(lat, lng, categories, limit = 3, sort = "POPULARITY") {
+// ── GOOGLE PLACES API ────────────────────────────────────────────────────────
+// Search for top venues by type — used for top 3 recommendations
+function searchGoogle(lat, lng, types, limit = 3) {
   return new Promise((resolve) => {
-    const params = new URLSearchParams({
-      ll: `${lat},${lng}`,
-      categories: categories,
-      radius: 800,
-      limit: limit,
-      sort: sort,
-      fields: "name,location,rating,price,categories"
+    const body = JSON.stringify({
+      includedTypes: types,
+      maxResultCount: limit,
+      locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: 800 } },
+      rankPreference: "POPULARITY"
     });
-
     const req = https.request({
-      hostname: "api.foursquare.com",
-      path: `/v3/places/search?${params.toString()}`,
-      method: "GET",
+      hostname: "places.googleapis.com",
+      path: "/v1/places:searchNearby",
+      method: "POST",
       headers: {
-        "Authorization": FOURSQUARE_KEY,
-        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress",
+        "Content-Length": Buffer.byteLength(body),
       },
     }, (res) => {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (!parsed.results || parsed.results.length === 0) {
-            console.log(`Foursquare 0 results for categories=${categories} at ${lat},${lng} — response: ${data.slice(0,200)}`);
-          }
-          resolve(parsed.results || []);
-        } catch {
-          resolve([]);
-        }
+        try { resolve(JSON.parse(data).places || []); }
+        catch { resolve([]); }
       });
       res.on("error", () => resolve([]));
     });
-
     req.on("error", () => resolve([]));
+    req.write(body);
     req.end();
   });
 }
 
-
-// Count venues via Foursquare — used for commercial amenity counts
-// More accurate than OSM for restaurants, bars, coffee, gyms, attractions
-function countFoursquare(lat, lng, categories, radius = 600) {
+// Count venues via Google Places — used for amenity tile counts
+function countGoogle(lat, lng, types, radius = 600) {
   return new Promise((resolve) => {
-    const params = new URLSearchParams({
-      ll: `${lat},${lng}`,
-      categories: categories,
-      radius: radius,
-      limit: 50,
-      fields: 'fsq_id,name,geocodes'
+    const body = JSON.stringify({
+      includedTypes: types,
+      maxResultCount: 20,
+      locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: radius } }
     });
     const req = https.request({
-      hostname: 'api.foursquare.com',
-      path: `/v3/places/search?${params.toString()}`,
-      method: 'GET',
-      headers: { 'Authorization': FOURSQUARE_KEY, 'Accept': 'application/json' },
+      hostname: "places.googleapis.com",
+      path: "/v1/places:searchNearby",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+        "X-Goog-FieldMask": "places.id",
+        "Content-Length": Buffer.byteLength(body),
+      },
     }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve((JSON.parse(data).results || []).length); }
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try { resolve((JSON.parse(data).places || []).length); }
         catch { resolve(0); }
       });
-      res.on('error', () => resolve(0));
+      res.on("error", () => resolve(0));
     });
-    req.on('error', () => resolve(0));
+    req.on("error", () => resolve(0));
+    req.write(body);
     req.end();
   });
 }
+
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
 let _lastOverpassCall = 0;
@@ -350,31 +346,27 @@ function fetchAllAmenities(lat, lng, city, polygon) {
 
 // Format Foursquare venue
 function formatVenue(venue, city, hoodName) {
-  const name = venue.name || "Unknown";
-  const address = venue.location?.address || venue.location?.formatted_address || "";
-  const rating = venue.rating ? `${(venue.rating/2).toFixed(1)}★` : "";
-  const price = venue.price ? '€'.repeat(venue.price) : "";
+  const name = venue.displayName?.text || venue.name || "Unknown";
+  const address = venue.shortFormattedAddress || "";
+  const rating = venue.rating ? `${venue.rating.toFixed(1)}★` : "";
+  const priceMap = { PRICE_LEVEL_INEXPENSIVE: "€", PRICE_LEVEL_MODERATE: "€€", PRICE_LEVEL_EXPENSIVE: "€€€", PRICE_LEVEL_VERY_EXPENSIVE: "€€€€" };
+  const price = priceMap[venue.priceLevel] || "";
   const parts = [address || hoodName, rating, price].filter(Boolean);
   const description = parts.join(' · ') || `In ${hoodName}`;
   return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}` };
 }
 
-// Fast enrichment — Foursquare venues only, no slow Overpass calls
+// Fast enrichment — Google Places venues only, no slow Overpass calls
 async function enrichMatchFast(match, destCity) {
   if (!match.lat || !match.lng) return match;
   try {
-    // Try RATING sort first — best quality. Fall back to RELEVANCE if no results.
-    const [rByRating, bByRating] = await Promise.all([
-      searchFoursquare(match.lat, match.lng, "13065", 3, "POPULARITY"),
-      searchFoursquare(match.lat, match.lng, "13003,13062,13058", 3, "POPULARITY"),
-    ]);
     const [restaurants, bars] = await Promise.all([
-      rByRating.length > 0 ? Promise.resolve(rByRating) : searchFoursquare(match.lat, match.lng, "13065", 3, "DISTANCE"),
-      bByRating.length > 0 ? Promise.resolve(bByRating) : searchFoursquare(match.lat, match.lng, "13003,13062,13058", 3, "DISTANCE"),
+      searchGoogle(match.lat, match.lng, ["restaurant"], 3),
+      searchGoogle(match.lat, match.lng, ["bar", "wine_bar"], 3),
     ]);
     match.top3Restaurants = restaurants.length > 0 ? restaurants.map(v => formatVenue(v, destCity, match.name)) : [];
     match.top3WineBars = bars.length > 0 ? bars.map(v => formatVenue(v, destCity, match.name)) : [];
-    console.log(`Foursquare enrichment for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars`);
+    console.log(`Google enrichment for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars`);
   } catch (err) {
     console.error("Fast enrichment error for", match.name, err.message);
     match.top3Restaurants = match.top3Restaurants || [];
@@ -462,8 +454,8 @@ async function enrichMatch(match, destCity, intent) {
 
   try {
     const [restaurants, bars] = await Promise.all([
-      searchFoursquare(match.lat, match.lng, "13065", 3, "POPULARITY"),
-      searchFoursquare(match.lat, match.lng, "13003,13062,13058", 3, "POPULARITY"),
+      searchGoogle(match.lat, match.lng, ["restaurant"], 3),
+      searchGoogle(match.lat, match.lng, ["bar", "wine_bar"], 3),
     ]);
 
     if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
@@ -654,15 +646,15 @@ app.post("/api/amenities", async (req, res) => {
         // + Foursquare counts (commercial: restaurants, bars, coffee, gyms, attractions)
         const [amenityData, fsqRestaurants, fsqBars, fsqCoffee, fsqGyms, fsqAttractions, fsqMusic, fsqCinema, fsqTheatre, fsqMarkets] = await Promise.all([
           fetchAllAmenities(m.lat, m.lng, destCity, m._polygon || null),
-          countFoursquare(m.lat, m.lng, '13065', 600),       // Food
-          countFoursquare(m.lat, m.lng, '13003,13062', 600), // Bar + Pub
-          countFoursquare(m.lat, m.lng, '13035', 600),       // Coffee Shop
-          countFoursquare(m.lat, m.lng, '18011', 600),       // Gym/Fitness
-          countFoursquare(m.lat, m.lng, '10027,16032', 600), // Museum + Monument/Landmark
-          countFoursquare(m.lat, m.lng, '10032,10012', 800), // Music venue + Nightclub
-          countFoursquare(m.lat, m.lng, '10024', 1000),      // Cinema
-          countFoursquare(m.lat, m.lng, '10048', 1000),      // Theatre/Performing arts
-          countFoursquare(m.lat, m.lng, '12061', 1000),      // Food market
+          countGoogle(m.lat, m.lng, ["restaurant"], 600),                           // Food
+          countGoogle(m.lat, m.lng, ["bar", "wine_bar"], 600),                      // Bar + Pub
+          countGoogle(m.lat, m.lng, ["cafe", "coffee_shop"], 600),                  // Coffee
+          countGoogle(m.lat, m.lng, ["gym", "fitness_center"], 600),                // Gym/Fitness
+          countGoogle(m.lat, m.lng, ["museum", "tourist_attraction"], 600),         // Museum + Attraction
+          countGoogle(m.lat, m.lng, ["night_club", "live_music_venue"], 800),       // Music venue + Nightclub
+          countGoogle(m.lat, m.lng, ["movie_theater"], 1000),                       // Cinema
+          countGoogle(m.lat, m.lng, ["performing_arts_theater"], 1000),             // Theatre
+          countGoogle(m.lat, m.lng, ["market", "food_market"], 1000),               // Food market
         ]);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
