@@ -60,8 +60,8 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
       categories: categories,
       radius: 600,
       limit: limit,
-      sort: "RELEVANCE",
-      fields: "name,location,rating,categories"
+      sort: "RATING",
+      fields: "name,location,rating,price,categories"
     });
 
     const req = https.request({
@@ -347,12 +347,14 @@ function fetchAllAmenities(lat, lng, city, polygon) {
 }
 
 // Format Foursquare venue
-function formatVenue(venue, city) {
+function formatVenue(venue, city, hoodName) {
   const name = venue.name || "Unknown";
-  const address = venue.location?.formatted_address || venue.location?.address || "";
-  const rating = venue.rating ? ` · ${venue.rating}/10` : "";
-  const description = address ? `${address}${rating}` : `Local favourite${rating}`;
-  return { name, description, googleMapsQuery: `${name} ${city}` };
+  const address = venue.location?.address || venue.location?.formatted_address || "";
+  const rating = venue.rating ? `${(venue.rating/2).toFixed(1)}★` : "";
+  const price = venue.price ? '€'.repeat(venue.price) : "";
+  const parts = [address || hoodName, rating, price].filter(Boolean);
+  const description = parts.join(' · ') || `In ${hoodName}`;
+  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}` };
 }
 
 // Fast enrichment — Foursquare venues only, no slow Overpass calls
@@ -363,8 +365,8 @@ async function enrichMatchFast(match, destCity) {
       searchFoursquare(match.lat, match.lng, "restaurant", "13000", 3),
       searchFoursquare(match.lat, match.lng, "wine bar", "13003,13062", 3),
     ]);
-    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity));
-    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity));
+    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
+    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity, match.name));
   } catch (err) {
     console.error("Fast enrichment error for", match.name, err.message);
   }
@@ -454,8 +456,8 @@ async function enrichMatch(match, destCity, intent) {
       searchFoursquare(match.lat, match.lng, "wine bar", "13003,13062", 3),
     ]);
 
-    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity));
-    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity));
+    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
+    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity, match.name));
 
     // ONE batched Overpass call for all amenities + transit
     const amenityData = await fetchAllAmenities(match.lat, match.lng, destCity);
@@ -521,16 +523,6 @@ Respond ONLY with a valid JSON array, no markdown:
     "walkScore": "High",
     "safetyRating": "Very safe",
     "bestFor": "Who this neighbourhood suits best for living",
-    "top3Restaurants": [
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"}
-    ],
-    "top3WineBars": [
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"}
-    ],
     "top3ThingsToDo": [
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
@@ -573,16 +565,6 @@ Respond ONLY with a valid JSON array, no markdown:
     "walkScore": "High",
     "safetyRating": "Very safe",
     "bestFor": "Who this neighbourhood suits best for a visit",
-    "top3Restaurants": [
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"}
-    ],
-    "top3WineBars": [
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"},
-      {"name": "Name", "description": "Short line", "googleMapsQuery": "Name ${safedestCity}"}
-    ],
     "top3ThingsToDo": [
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": true},
