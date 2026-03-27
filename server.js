@@ -748,6 +748,94 @@ app.get("/api/nominatim", async (req, res) => {
   nomReq.end();
 });
 
+// ── TRANSIT LINES ENDPOINT ───────────────────────────────────────────────────
+// Returns real metro/tram/train route geometries from Overpass with name, ref, colour
+app.post("/api/transitlines", async (req, res) => {
+  const { lat, lng } = req.body;
+  if (!lat || !lng) return res.status(400).json({ error: 'Missing lat/lng' });
+
+  const query = `
+[out:json][timeout:20];
+(
+  relation["route"~"subway|light_rail|tram|train"]["name"](around:2000,${lat},${lng});
+  relation["route"~"subway|light_rail|tram"]["ref"](around:2000,${lat},${lng});
+);
+out geom;`;
+
+  const body = `data=${encodeURIComponent(query)}`;
+
+  const MIRRORS = ["overpass-api.de", "z.overpass-api.de", "lz4.overpass-api.de"];
+
+  // Default colour palette for lines without OSM colour tag
+  const LINE_COLOURS = ['#E74C3C','#3498DB','#2ECC71','#F39C12','#9B59B6','#1ABC9C','#E67E22','#E91E63'];
+
+  async function tryMirror(hostname) {
+    return new Promise((resolve, reject) => {
+      const r = https.request({
+        hostname, path: "/api/interpreter", method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+      }, (response) => {
+        let d = "";
+        response.on("data", chunk => d += chunk);
+        response.on("end", () => {
+          if (d.trimStart().startsWith("<")) reject(new Error(`${hostname} rate-limited`));
+          else resolve(d);
+        });
+        response.on("error", reject);
+      });
+      r.on("error", reject);
+      r.write(body);
+      r.end();
+    });
+  }
+
+  let rawData = null;
+  for (const mirror of MIRRORS) {
+    try { rawData = await tryMirror(mirror); break; }
+    catch(e) { console.error(`Transit lines ${mirror} failed: ${e.message}`); }
+  }
+
+  if (!rawData) return res.json({ lines: [] });
+
+  try {
+    const parsed = JSON.parse(rawData);
+    const relations = parsed.elements || [];
+    const seen = new Set();
+    const lines = [];
+    let colourIdx = 0;
+
+    for (const rel of relations) {
+      const name = rel.tags?.name || rel.tags?.ref || 'Transit Line';
+      const ref  = rel.tags?.ref || '';
+      const key  = name + ref;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Assign colour: use OSM colour tag if present, else cycle through palette
+      const osmColour = rel.tags?.colour || rel.tags?.color;
+      const colour = osmColour || LINE_COLOURS[colourIdx % LINE_COLOURS.length];
+      if (!osmColour) colourIdx++;
+
+      // Build coordinates from member way geometries
+      const coords = [];
+      for (const member of (rel.members || [])) {
+        if (member.type === 'way' && member.geometry?.length) {
+          coords.push(member.geometry.map(p => [p.lon, p.lat]));
+        }
+      }
+
+      if (coords.length > 0) {
+        lines.push({ name, ref, colour, coords });
+      }
+    }
+
+    return res.json({ lines });
+  } catch(e) {
+    console.error('Transit lines parse error:', e.message);
+    return res.json({ lines: [] });
+  }
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 const PORT = process.env.PORT || 3000;
