@@ -832,17 +832,33 @@ out geom qt;`;
     const parsed = JSON.parse(rawData);
     const relations = parsed.elements || [];
     const lines = [];
-    const refColourMap = {}; // same ref = same colour across directions
-    const seenRefs = new Set(); // deduplicate by ref — avoids drawing both directions
+    const refColourMap = {};
+    const seenRefs  = new Set(); // deduplicate by ref
+    const seenNames = new Set(); // deduplicate by normalised name (for lines without ref)
     let colourIdx = 0;
+
+    // Normalise a line name for dedup — strips direction info
+    // "T-bana 13: Norsborg → Ropsten" → "t-bana 13"
+    const normaliseName = (name) => name
+      .toLowerCase()
+      .replace(/[→←↔:].*/g, '')   // strip everything after direction arrows or colon
+      .replace(/\s+/g, ' ')
+      .trim();
 
     for (const rel of relations) {
       const name = rel.tags?.name || rel.tags?.ref || 'Transit Line';
       const ref  = rel.tags?.ref || '';
 
-      // Skip duplicate directions — same ref already processed
+      // Deduplicate by ref first
       if (ref && seenRefs.has(ref)) continue;
       if (ref) seenRefs.add(ref);
+
+      // For lines without ref, deduplicate by normalised name
+      if (!ref) {
+        const normName = normaliseName(name);
+        if (seenNames.has(normName)) continue;
+        seenNames.add(normName);
+      }
 
       // Assign colour: OSM colour tag first, then consistent per ref, then palette
       const osmColour = rel.tags?.colour || rel.tags?.color;
