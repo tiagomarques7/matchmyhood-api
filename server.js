@@ -308,8 +308,9 @@ function fetchAllAmenities(lat, lng, city, polygon) {
       const nearestMetro = els
         .filter(e => HEAVY_TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
         .map(e => e.tags.name)
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .slice(0, 4);
+        .filter((v, i, a) => a.indexOf(v) === i);
+
+      const stationCount = nearestMetro.length; // total unique stations — used for amenity tile
 
       const busNamesAll = els
         .filter(e => BUS_MATCHERS.some(fn => fn(e)) && e.tags?.name)
@@ -335,7 +336,8 @@ function fetchAllAmenities(lat, lng, city, polygon) {
       resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums,
                 cinemas, theatres, musicVenues, markets, hospitals,
                 restaurants, cafes, bars,
-                nearestMetro, nearestBus, busCount, busOnly,
+                nearestMetro: nearestMetro.slice(0, 4), stationCount,
+                nearestBus, busCount, busOnly,
                 transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
     }
 
@@ -698,6 +700,7 @@ app.post("/api/amenities", async (req, res) => {
           theatres:     fsqTheatre || amenityData.theatres,
           markets:      fsqMarkets || amenityData.markets,
           hospitals:    amenityData.hospitals,
+          stations:     amenityData.stationCount || 0,
         };
 
       } catch (e) {
@@ -830,11 +833,16 @@ out geom qt;`;
     const relations = parsed.elements || [];
     const lines = [];
     const refColourMap = {}; // same ref = same colour across directions
+    const seenRefs = new Set(); // deduplicate by ref — avoids drawing both directions
     let colourIdx = 0;
 
     for (const rel of relations) {
       const name = rel.tags?.name || rel.tags?.ref || 'Transit Line';
       const ref  = rel.tags?.ref || '';
+
+      // Skip duplicate directions — same ref already processed
+      if (ref && seenRefs.has(ref)) continue;
+      if (ref) seenRefs.add(ref);
 
       // Assign colour: OSM colour tag first, then consistent per ref, then palette
       const osmColour = rel.tags?.colour || rel.tags?.color;
