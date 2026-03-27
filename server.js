@@ -159,7 +159,9 @@ function fetchAllAmenities(lat, lng, city) {
       `node["railway"="halt"](around:800,${lat},${lng});`,
       `nwr["station"="subway"](around:800,${lat},${lng});`,
       `node["public_transport"="stop_position"]["tram"="yes"](around:800,${lat},${lng});`,
-      `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`
+      `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`,
+      `node["highway"="bus_stop"](around:400,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["bus"="yes"](around:400,${lat},${lng});`
     );
 
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
@@ -255,7 +257,7 @@ function fetchAllAmenities(lat, lng, city) {
       }).length;
       const museums      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
 
-      const TRANSIT_MATCHERS = [
+      const HEAVY_TRANSIT_MATCHERS = [
         e => e.tags?.railway === "station",
         e => e.tags?.railway === "subway_entrance",
         e => e.tags?.railway === "tram_stop",
@@ -263,15 +265,30 @@ function fetchAllAmenities(lat, lng, city) {
         e => e.tags?.station === "subway",
         e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
       ];
+      const BUS_MATCHERS = [
+        e => e.tags?.highway === "bus_stop",
+        e => e.tags?.public_transport === "stop_position" && e.tags?.bus === "yes",
+      ];
+      const ALL_TRANSIT_MATCHERS = [...HEAVY_TRANSIT_MATCHERS, ...BUS_MATCHERS];
+
       const nearestMetro = els
-        .filter(e => TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+        .filter(e => HEAVY_TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
         .map(e => e.tags.name)
         .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 4);
 
+      const nearestBus = els
+        .filter(e => BUS_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+        .map(e => e.tags.name)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 4);
+
+      // busOnly = bus stops found but no heavy transit within 800m
+      const busOnly = nearestMetro.length === 0 && nearestBus.length > 0;
+
       const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
       const hasLL = c => c.lat && c.lon;
-      const transitCoords     = els.filter(e => TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+      const transitCoords     = els.filter(e => ALL_TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
         .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
       const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
       const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
@@ -280,7 +297,8 @@ function fetchAllAmenities(lat, lng, city) {
       const restaurantCoords  = els.filter(e => e.tags?.amenity === "restaurant").map(coord).filter(hasLL).slice(0,40);
       const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
 
-      resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars, nearestMetro,
+      resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars,
+                nearestMetro, nearestBus, busOnly,
                 transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
     }
 
@@ -404,6 +422,8 @@ async function enrichMatch(match, destCity, intent) {
     const amenityData = await fetchAllAmenities(match.lat, match.lng, destCity);
 
     if (amenityData.nearestMetro.length > 0) match.nearestMetro = amenityData.nearestMetro;
+    if (amenityData.nearestBus?.length > 0) match.nearestBus = amenityData.nearestBus;
+    if (amenityData.busOnly) match.busOnly = true;
 
     if (intent === "move") {
       match.amenities = {
@@ -608,6 +628,8 @@ app.post("/api/amenities", async (req, res) => {
         ]);
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
+        if (amenityData.nearestBus?.length > 0)  m.nearestBus   = amenityData.nearestBus;
+        if (amenityData.busOnly)                  m.busOnly      = true;
         if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
         if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
         if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
