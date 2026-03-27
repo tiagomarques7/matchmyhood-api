@@ -482,12 +482,12 @@ async function enrichMatch(match, destCity, intent) {
 }
 
 // ── PROMPTS ─────────────────────────────────────────────────────────────────
-function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent, excludeHood) {
+function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent, excludeHoods) {
   const vibeContext = safeVibes
     ? `\nThe traveller especially values: ${safeVibes}. Weight these heavily.`
     : "";
-  const excludeContext = excludeHood
-    ? `\nDo NOT suggest "${excludeHood}" — the user has already seen it and wants a different option.`
+  const excludeContext = Array.isArray(excludeHoods) && excludeHoods.length > 0
+    ? `\nDo NOT suggest any of these neighbourhoods — the user has already seen them: ${excludeHoods.map(h => `"${h}"`).join(", ")}. Suggest a genuinely different option.`
     : "";
 
   if (intent === "move") {
@@ -599,7 +599,7 @@ Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact 
 
 // ── MAIN ROUTE ───────────────────────────────────────────────────────────────
 app.post("/api/match", async (req, res) => {
-  const { homeCity, homeHood, destCity, vibes, intent, excludeHood } = req.body;
+  const { homeCity, homeHood, destCity, vibes, intent, excludeHoods } = req.body;
 
   if (!homeCity || !homeHood || !destCity) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -613,12 +613,14 @@ app.post("/api/match", async (req, res) => {
   const safehomeHood = sanitise(homeHood);
   const safedestCity = sanitise(destCity);
   const safeVibes = Array.isArray(vibes) ? vibes.map(v => sanitise(v)).join(", ") : "";
-  const safeExcludeHood = excludeHood ? sanitise(excludeHood) : null;
+  const safeExcludeHoods = Array.isArray(excludeHoods)
+    ? excludeHoods.map(h => sanitise(String(h))).filter(Boolean)
+    : [];
   const currentIntent = intent === "move" ? "move" : "visit";
 
   try {
     // Step 1: Claude — neighbourhood matches with intent-specific fields
-    const prompt = buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, currentIntent, safeExcludeHood);
+    const prompt = buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, currentIntent, safeExcludeHoods);
     const text = await callClaude(prompt);
     const cleaned = text.replace(/```json|```/g, "").trim();
     let matches = JSON.parse(cleaned);
