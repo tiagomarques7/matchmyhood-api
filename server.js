@@ -125,33 +125,51 @@ function countFoursquare(lat, lng, categories, radius = 600) {
 // Fetches ALL amenity types + transit in ONE request to avoid rate limiting
 let _lastOverpassCall = 0;
 
-function fetchAllAmenities(lat, lng, city) {
+function fetchAllAmenities(lat, lng, city, polygon) {
   const tags = CITY_TAGS[city] || DEFAULT_TAGS;
+
+  // Build Overpass area filter — use polygon if available, else radius
+  // Overpass poly: format is "lat1 lon1 lat2 lon2 ..." (space-separated, flat)
+  let areaFilter;
+  if (polygon) {
+    try {
+      let coords = polygon.type === 'Polygon'
+        ? polygon.coordinates[0]
+        : polygon.coordinates[0][0]; // first ring of MultiPolygon
+      // Overpass poly: needs lat lon pairs (note: GeoJSON is lon,lat so we swap)
+      const polyStr = coords.map(c => `${c[1]} ${c[0]}`).join(' ');
+      areaFilter = (tag) => `(poly:"${polyStr}")`;
+    } catch(e) {
+      console.error('Polygon parse error, falling back to radius:', e.message);
+      areaFilter = (radius) => `(around:${radius},${lat},${lng})`;
+    }
+  } else {
+    areaFilter = (radius) => `(around:${radius},${lat},${lng})`;
+  }
 
   return new Promise(async (resolve) => {
     const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
 
     // Build union of all nwr (node/way/relation) queries
     const parts = [
-      `nwr["amenity"="pharmacy"](around:700,${lat},${lng});`,
-      // Restaurants & bars for VISIT mode counts
-      `nwr["amenity"="restaurant"](around:600,${lat},${lng});`,
-      `nwr["amenity"="cafe"](around:600,${lat},${lng});`,
-      `nwr["amenity"="bar"](around:600,${lat},${lng});`,
-      `nwr["amenity"="pub"](around:600,${lat},${lng});`,
-      `nwr["amenity"="wine_bar"](around:600,${lat},${lng});`,
+      `nwr["amenity"="pharmacy"]${areaFilter(700)};`,
+      `nwr["amenity"="restaurant"]${areaFilter(600)};`,
+      `nwr["amenity"="cafe"]${areaFilter(600)};`,
+      `nwr["amenity"="bar"]${areaFilter(600)};`,
+      `nwr["amenity"="pub"]${areaFilter(600)};`,
+      `nwr["amenity"="wine_bar"]${areaFilter(600)};`,
     ];
     for (const [k, v] of (tags.supermarkets || []))
-      parts.push(`nwr["${k}"="${v}"](around:700,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(700)};`);
     for (const [k, v] of (tags.gyms || []))
-      parts.push(`nwr["${k}"="${v}"](around:700,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(700)};`);
     for (const [k, v] of (tags.parks || []))
-      parts.push(`nwr["${k}"="${v}"](around:900,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(900)};`);
     for (const [k, v] of (tags.schools || []))
-      parts.push(`nwr["${k}"="${v}"](around:2000,${lat},${lng});`);
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(2000)};`);
     for (const [k, v] of (tags.museums || []))
-      parts.push(`nwr["${k}"="${v}"](around:1500,${lat},${lng});`);
-    // Transit: subway_entrance and tram_stop are nodes; stations can be way/relation
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(1500)};`);
+    // Transit — always use radius (stations can be just outside hood boundary)
     parts.push(
       `nwr["railway"="station"](around:800,${lat},${lng});`,
       `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
@@ -163,15 +181,15 @@ function fetchAllAmenities(lat, lng, city) {
       `node["highway"="bus_stop"](around:400,${lat},${lng});`,
       `node["public_transport"="stop_position"]["bus"="yes"](around:400,${lat},${lng});`,
       // Entertainment & culture
-      `nwr["amenity"="cinema"](around:1000,${lat},${lng});`,
-      `nwr["amenity"="theatre"](around:1000,${lat},${lng});`,
-      `nwr["amenity"="music_venue"](around:1000,${lat},${lng});`,
-      `nwr["amenity"="nightclub"](around:800,${lat},${lng});`,
-      `nwr["amenity"="marketplace"](around:1000,${lat},${lng});`,
-      `nwr["shop"="market"](around:1000,${lat},${lng});`,
+      `nwr["amenity"="cinema"]${areaFilter(1000)};`,
+      `nwr["amenity"="theatre"]${areaFilter(1000)};`,
+      `nwr["amenity"="music_venue"]${areaFilter(1000)};`,
+      `nwr["amenity"="nightclub"]${areaFilter(800)};`,
+      `nwr["amenity"="marketplace"]${areaFilter(1000)};`,
+      `nwr["shop"="market"]${areaFilter(1000)};`,
       // Hospitals (LIVE mode)
-      `nwr["amenity"="hospital"](around:1500,${lat},${lng});`,
-      `nwr["amenity"="clinic"](around:1000,${lat},${lng});`
+      `nwr["amenity"="hospital"]${areaFilter(1500)};`,
+      `nwr["amenity"="clinic"]${areaFilter(1000)};`
     );
 
     const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
@@ -639,7 +657,7 @@ app.post("/api/amenities", async (req, res) => {
         // ONE batched Overpass call (civic: parks, stations, pharmacies, supermarkets, schools)
         // + Foursquare counts (commercial: restaurants, bars, coffee, gyms, attractions)
         const [amenityData, fsqRestaurants, fsqBars, fsqCoffee, fsqGyms, fsqAttractions, fsqMusic, fsqCinema, fsqTheatre, fsqMarkets] = await Promise.all([
-          fetchAllAmenities(m.lat, m.lng, destCity),
+          fetchAllAmenities(m.lat, m.lng, destCity, m._polygon || null),
           countFoursquare(m.lat, m.lng, '13065', 600),       // Food
           countFoursquare(m.lat, m.lng, '13003,13062', 600), // Bar + Pub
           countFoursquare(m.lat, m.lng, '13035', 600),       // Coffee Shop
@@ -759,7 +777,7 @@ app.post("/api/transitlines", async (req, res) => {
   const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
 
   const query = `
-[out:json][timeout:45][maxsize:1073741824];
+[out:json][timeout:45];
 (
   relation["route"~"subway|light_rail|tram"]["type"!="route_master"](${bbox});
 );
@@ -794,8 +812,13 @@ out geom qt;`;
 
   let rawData = null;
   for (const mirror of MIRRORS) {
-    try { rawData = await tryMirror(mirror); break; }
-    catch(e) { console.error(`Transit lines ${mirror} failed: ${e.message}`); }
+    try {
+      rawData = await tryMirror(mirror);
+      console.log(`Transit lines ${mirror} OK — ${rawData.length} bytes`);
+      break;
+    } catch(e) {
+      console.error(`Transit lines ${mirror} failed: ${e.message}`);
+    }
   }
 
   if (!rawData) return res.json({ lines: [] });
@@ -843,6 +866,7 @@ out geom qt;`;
       }
     }
 
+    console.log(`Transit lines parsed: ${relations.length} relations → ${lines.length} lines after processing`);
     return res.json({ lines });
   } catch(e) {
     console.error('Transit lines parse error:', e.message);
