@@ -52,7 +52,7 @@ function callClaude(prompt) {
 }
 
 // ── FOURSQUARE API ──────────────────────────────────────────────────────────
-function searchFoursquare(lat, lng, query, categories, limit = 3) {
+function searchFoursquare(lat, lng, query, categories, limit = 3, sort = "RATING") {
   return new Promise((resolve) => {
     const params = new URLSearchParams({
       ll: `${lat},${lng}`,
@@ -60,7 +60,7 @@ function searchFoursquare(lat, lng, query, categories, limit = 3) {
       categories: categories,
       radius: 600,
       limit: limit,
-      sort: "RATING",
+      sort: sort,
       fields: "name,location,rating,price,categories"
     });
 
@@ -361,14 +361,17 @@ function formatVenue(venue, city, hoodName) {
 async function enrichMatchFast(match, destCity) {
   if (!match.lat || !match.lng) return match;
   try {
-    const [restaurants, bars] = await Promise.all([
-      searchFoursquare(match.lat, match.lng, "restaurant", "13000", 3),
-      searchFoursquare(match.lat, match.lng, "wine bar", "13003,13062", 3),
+    // Try RATING sort first — best quality. Fall back to RELEVANCE if no results.
+    const [rByRating, bByRating] = await Promise.all([
+      searchFoursquare(match.lat, match.lng, "restaurant", "13000", 3, "RATING"),
+      searchFoursquare(match.lat, match.lng, "wine bar", "13003,13062", 3, "RATING"),
     ]);
-    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
-    else match.top3Restaurants = [];
-    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity, match.name));
-    else match.top3WineBars = [];
+    const [restaurants, bars] = await Promise.all([
+      rByRating.length > 0 ? Promise.resolve(rByRating) : searchFoursquare(match.lat, match.lng, "restaurant", "13000", 3, "RELEVANCE"),
+      bByRating.length > 0 ? Promise.resolve(bByRating) : searchFoursquare(match.lat, match.lng, "bar pub drinks", "13003,13062", 3, "RELEVANCE"),
+    ]);
+    match.top3Restaurants = restaurants.length > 0 ? restaurants.map(v => formatVenue(v, destCity, match.name)) : [];
+    match.top3WineBars = bars.length > 0 ? bars.map(v => formatVenue(v, destCity, match.name)) : [];
   } catch (err) {
     console.error("Fast enrichment error for", match.name, err.message);
     match.top3Restaurants = match.top3Restaurants || [];
