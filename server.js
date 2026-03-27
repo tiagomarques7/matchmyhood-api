@@ -77,6 +77,9 @@ function searchFoursquare(lat, lng, categories, limit = 3, sort = "POPULARITY") 
       res.on("end", () => {
         try {
           const parsed = JSON.parse(data);
+          if (!parsed.results || parsed.results.length === 0) {
+            console.log(`Foursquare 0 results for categories=${categories} at ${lat},${lng} — response: ${data.slice(0,200)}`);
+          }
           resolve(parsed.results || []);
         } catch {
           resolve([]);
