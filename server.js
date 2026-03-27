@@ -277,11 +277,12 @@ function fetchAllAmenities(lat, lng, city) {
         .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 4);
 
-      const nearestBus = els
+      const busNamesAll = els
         .filter(e => BUS_MATCHERS.some(fn => fn(e)) && e.tags?.name)
         .map(e => e.tags.name)
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .slice(0, 4);
+        .filter((v, i, a) => a.indexOf(v) === i);
+      const nearestBus = busNamesAll.slice(0, 4); // names shown in UI
+      const busCount   = busNamesAll.length;       // actual count for tile
 
       // busOnly = bus stops found but no heavy transit within 800m
       const busOnly = nearestMetro.length === 0 && nearestBus.length > 0;
@@ -298,7 +299,7 @@ function fetchAllAmenities(lat, lng, city) {
       const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
 
       resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums, restaurants, cafes, bars,
-                nearestMetro, nearestBus, busOnly,
+                nearestMetro, nearestBus, busCount, busOnly,
                 transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
     }
 
@@ -423,7 +424,8 @@ async function enrichMatch(match, destCity, intent) {
 
     if (amenityData.nearestMetro.length > 0) match.nearestMetro = amenityData.nearestMetro;
     if (amenityData.nearestBus?.length > 0) match.nearestBus = amenityData.nearestBus;
-    if (amenityData.busOnly) match.busOnly = true;
+    if (amenityData.busCount)               match.busCount   = amenityData.busCount;
+    if (amenityData.busOnly)                match.busOnly    = true;
 
     if (intent === "move") {
       match.amenities = {
@@ -629,7 +631,8 @@ app.post("/api/amenities", async (req, res) => {
 
         if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
         if (amenityData.nearestBus?.length > 0)  m.nearestBus   = amenityData.nearestBus;
-        if (amenityData.busOnly)                  m.busOnly      = true;
+        if (amenityData.busCount)                  m.busCount     = amenityData.busCount;
+        if (amenityData.busOnly)                   m.busOnly      = true;
         if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
         if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
         if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
