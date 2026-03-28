@@ -73,7 +73,7 @@ function searchGoogle(lat, lng, types, limit = 3) {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
-        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress,places.photos,places.currentOpeningHours,places.websiteUri,places.primaryType",
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress,places.photos,places.currentOpeningHours,places.websiteUri,places.primaryType,places.location",
         "Content-Length": Buffer.byteLength(body),
       },
     }, (res) => {
@@ -385,7 +385,9 @@ function formatVenue(venue, city, hoodName) {
   const openStatus = isOpen === true ? 'Open now' : isOpen === false ? 'Closed' : null;
   const website = venue.websiteUri || null;
   const primaryType = venue.primaryType || null;
-  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}`, photoUrl, openStatus, website, primaryType };
+  const lat = venue.location?.latitude || null;
+  const lng = venue.location?.longitude || null;
+  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}`, photoUrl, openStatus, website, primaryType, lat, lng };
 }
 
 // Fast enrichment — Google Places venues only, no slow Overpass calls
