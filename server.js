@@ -1,4049 +1,1087 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MatchMyHood — Find Your Neighbourhood, Anywhere in the World</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet"/>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23C4622D'/><text y='24' x='5' font-size='22' font-family='serif' fill='white'>M</text></svg>">
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-YG0BGC28QZ"></script>
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-YG0BGC28QZ');</script>
-<style>
-  :root {
-    --terracotta: #C4622D;
-    --terracotta-light: #E8875A;
-    --terracotta-dark: #9B4A20;
-    --cream: #F8F1E7;
-    --cream-dark: #EDE3D4;
-    --sand: #D9C9B0;
-    --earth: #3D2B1F;
-    --earth-mid: #6B4C3B;
-    --olive: #6B7C4A;
-    --olive-light: #8EA065;
-    --burgundy: #7A3030;
-    --gold: #C9A455;
-    --white: #FEFCF8;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  html { scroll-behavior: smooth; }
-
-  body {
-    font-family: 'DM Sans', sans-serif;
-    background: var(--cream);
-    color: var(--earth);
-    overflow-x: hidden;
-  }
-
-  /* ── TEXTURE OVERLAY ── */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 1000;
-    opacity: 0.4;
-  }
-
-  /* ── NAV ── */
-  nav {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 100;
-    padding: 18px 48px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: rgba(248, 241, 231, 0.92);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(196, 98, 45, 0.15);
-    transition: all 0.3s ease;
-  }
-
-  .nav-logo {
-    font-family: 'DM Serif Display', serif;
-    font-size: 22px;
-    color: var(--earth);
-    text-decoration: none;
-    letter-spacing: -0.3px;
-  }
-
-  .nav-logo span { color: var(--terracotta); }
-
-  .nav-links {
-    display: flex;
-    gap: 36px;
-    align-items: center;
-    list-style: none;
-  }
-
-  .nav-links a {
-    text-decoration: none;
-    color: var(--earth-mid);
-    font-size: 14px;
-    font-weight: 500;
-    letter-spacing: 0.3px;
-    transition: color 0.2s;
-  }
-
-  .nav-links a:hover { color: var(--terracotta); }
-
-  .nav-cta {
-    background: var(--terracotta);
-    color: var(--white) !important;
-    padding: 10px 22px;
-    border-radius: 100px;
-    font-weight: 600 !important;
-    transition: background 0.2s, transform 0.2s !important;
-  }
-
-  .nav-cta:hover {
-    background: var(--terracotta-dark) !important;
-    transform: translateY(-1px);
-    color: var(--white) !important;
-  }
-
-  /* ── HERO ── */
-  .hero {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    padding: 120px 48px 80px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .hero-bg {
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(ellipse 80% 60% at 70% 40%, rgba(196,98,45,0.08) 0%, transparent 70%),
-      radial-gradient(ellipse 50% 50% at 20% 80%, rgba(107,124,74,0.07) 0%, transparent 60%),
-      linear-gradient(160deg, var(--cream) 0%, var(--cream-dark) 100%);
-  }
-
-  /* Azulejo tile pattern in background */
-  .hero-tiles {
-    position: absolute;
-    right: -40px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 520px;
-    height: 520px;
-    opacity: 0.07;
-    background-image: repeating-linear-gradient(
-      0deg, var(--terracotta) 0px, var(--terracotta) 1px, transparent 1px, transparent 40px
-    ),
-    repeating-linear-gradient(
-      90deg, var(--terracotta) 0px, var(--terracotta) 1px, transparent 1px, transparent 40px
-    );
-    border-radius: 50%;
-  }
-
-  .hero-content {
-    position: relative;
-    z-index: 2;
-    max-width: 580px;
-    animation: fadeUp 0.8s ease forwards;
-  }
-
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(24px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: rgba(196, 98, 45, 0.1);
-    border: 1px solid rgba(196, 98, 45, 0.25);
-    padding: 7px 14px;
-    border-radius: 100px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--terracotta-dark);
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    margin-bottom: 28px;
-  }
-
-  .hero-badge::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--terracotta);
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.8); }
-  }
-
-  h1 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: clamp(48px, 6vw, 76px);
-    font-weight: 600;
-    line-height: 1.05;
-    color: var(--earth);
-    margin-bottom: 24px;
-    letter-spacing: -1px;
-  }
-
-  h1 em {
-    font-style: italic;
-    color: var(--terracotta);
-  }
-
-  .hero-sub {
-    font-size: 17px;
-    line-height: 1.65;
-    color: var(--earth-mid);
-    margin-bottom: 44px;
-    font-weight: 400;
-    max-width: 460px;
-  }
-
-  /* ── HERO DEMO CARD ── */
-  .hero-demo {
-    position: relative;
-    z-index: 2;
-    margin-left: auto;
-    width: 480px;
-    animation: fadeUp 0.8s 0.2s ease both;
-    flex-shrink: 0;
-  }
-
-  .demo-card {
-    background: var(--white);
-    border-radius: 24px;
-    padding: 32px;
-    box-shadow:
-      0 2px 4px rgba(61,43,31,0.04),
-      0 8px 24px rgba(61,43,31,0.08),
-      0 32px 64px rgba(61,43,31,0.10);
-    border: 1px solid rgba(196,98,45,0.1);
-  }
-
-  .demo-label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: var(--sand);
-    margin-bottom: 12px;
-  }
-
-  .demo-match-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-
-  .demo-hood {
-    flex: 1;
-    background: var(--cream);
-    border-radius: 14px;
-    padding: 16px;
-    border: 1px solid var(--cream-dark);
-  }
-
-  .demo-hood-city {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--terracotta);
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-  }
-
-  .demo-hood-name {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--earth);
-    line-height: 1.2;
-  }
-
-  .demo-arrow {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    color: var(--terracotta);
-    font-size: 20px;
-    flex-shrink: 0;
-  }
-
-  .match-score-badge {
-    background: var(--terracotta);
-    color: white;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 100px;
-    letter-spacing: 0.3px;
-  }
-
-  .demo-result {
-    background: linear-gradient(135deg, rgba(196,98,45,0.08), rgba(107,124,74,0.06));
-    border: 1px solid rgba(196,98,45,0.2);
-    border-radius: 14px;
-    padding: 16px;
-  }
-
-  .demo-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 14px;
-  }
-
-  .demo-tag {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 4px 10px;
-    border-radius: 100px;
-    background: rgba(196,98,45,0.1);
-    color: var(--terracotta-dark);
-    border: 1px solid rgba(196,98,45,0.15);
-  }
-
-  .demo-tag.green {
-    background: rgba(107,124,74,0.1);
-    color: var(--olive);
-    border-color: rgba(107,124,74,0.2);
-  }
-
-  .demo-why {
-    margin-top: 16px;
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--earth-mid);
-    font-style: italic;
-    border-top: 1px solid var(--cream-dark);
-    padding-top: 14px;
-  }
-
-  /* ── SEARCH SECTION ── */
-  .search-section {
-    background: var(--earth);
-    padding: 80px 48px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .search-section::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 30px,
-      rgba(255,255,255,0.015) 30px,
-      rgba(255,255,255,0.015) 31px
-    );
-  }
-
-  .search-inner {
-    max-width: 800px;
-    margin: 0 auto;
-    position: relative;
-    z-index: 2;
-    text-align: center;
-  }
-
-  .search-inner h2 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: clamp(36px, 4vw, 54px);
-    font-weight: 600;
-    color: var(--cream);
-    margin-bottom: 12px;
-    letter-spacing: -0.5px;
-  }
-
-  .search-inner h2 em {
-    font-style: italic;
-    color: var(--terracotta-light);
-  }
-
-  .search-inner p {
-    font-size: 16px;
-    color: rgba(248,241,231,0.6);
-    margin-bottom: 44px;
-  }
-
-  .search-form {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 20px;
-    padding: 28px;
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr auto;
-    gap: 14px;
-    align-items: end;
-  }
-
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    text-align: left;
-  }
-
-  .form-group label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: rgba(248,241,231,0.5);
-  }
-
-  .form-group select,
-  .form-group input {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 12px;
-    padding: 14px 16px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    color: var(--cream);
-    outline: none;
-    transition: border-color 0.2s, background 0.2s;
-    cursor: pointer;
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-  }
-
-  .form-group select option { background: var(--earth); color: var(--cream); }
-
-  .form-group select:focus,
-  .form-group input:focus {
-    border-color: var(--terracotta-light);
-    background: rgba(255,255,255,0.12);
-  }
-
-  .form-group input::placeholder { color: rgba(248,241,231,0.3); }
-
-  .search-btn {
-    background: var(--terracotta);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 14px 28px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-    height: 52px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .search-btn:hover {
-    background: var(--terracotta-light);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(196,98,45,0.4);
-  }
-
-  .search-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  /* ── RESULTS ── */
-  .results-area {
-    margin-top: 32px;
-    text-align: left;
-    display: none;
-  }
-
-  .results-area.visible { display: block; animation: fadeUp 0.5s ease; }
-
-  .result-card {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 14px;
-  }
-
-  .result-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-
-  .result-hood-name {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 28px;
-    font-weight: 600;
-    color: var(--cream);
-  }
-
-  .result-score {
-    background: var(--terracotta);
-    color: white;
-    font-size: 13px;
-    font-weight: 700;
-    padding: 6px 14px;
-    border-radius: 100px;
-  }
-
-  .result-city {
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    color: var(--terracotta-light);
-    margin-bottom: 10px;
-  }
-
-  .result-desc {
-    font-size: 14px;
-    line-height: 1.65;
-    color: rgba(248,241,231,0.7);
-    margin-bottom: 14px;
-  }
-
-  .result-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-
-  .result-tag {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 4px 10px;
-    border-radius: 100px;
-    background: rgba(196,98,45,0.2);
-    color: var(--terracotta-light);
-    border: 1px solid rgba(196,98,45,0.25);
-  }
-
-  .result-extras {
-    margin-top: 14px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-  }
-
-  .result-extra {
-    background: rgba(255,255,255,0.04);
-    border-radius: 10px;
-    padding: 10px 12px;
-  }
-
-  .result-extra-label {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: rgba(248,241,231,0.35);
-    margin-bottom: 4px;
-  }
-
-  .result-extra-val {
-    font-size: 13px;
-    font-weight: 500;
-    color: rgba(248,241,231,0.8);
-  }
-
-  .booking-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 16px;
-    background: var(--olive);
-    color: white;
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 10px 18px;
-    border-radius: 100px;
-    transition: all 0.2s;
-  }
-
-  .booking-btn:hover { background: var(--olive-light); transform: translateY(-1px); }
-
-  .loading-msg {
-    text-align: center;
-    padding: 32px;
-    color: rgba(248,241,231,0.5);
-    font-size: 15px;
-    display: none;
-  }
-
-  .loading-msg.visible {
-    display: block;
-    animation: fadeUp 0.3s ease;
-  }
-
-  .loading-dots::after {
-    content: '';
-    animation: dots 1.5s infinite;
-  }
-
-  @keyframes dots {
-    0% { content: '.'; }
-    33% { content: '..'; }
-    66% { content: '...'; }
-  }
-
-  .error-msg {
-    background: rgba(122,48,48,0.3);
-    border: 1px solid rgba(122,48,48,0.5);
-    border-radius: 12px;
-    padding: 16px 20px;
-    color: #ffb3b3;
-    font-size: 14px;
-    display: none;
-    margin-top: 16px;
-  }
-
-  .error-msg.visible { display: block; }
-
-  /* ── INTENT MODE SELECTOR ── */
-  .intent-section {
-    background: var(--white);
-    padding: 64px 48px;
-    border-bottom: 1px solid var(--cream-dark);
-  }
-  .intent-inner { max-width: 900px; margin: 0 auto; }
-  .intent-pre {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 26px;
-    font-weight: 500;
-    color: var(--earth);
-    text-align: center;
-    margin-bottom: 36px;
-    font-style: italic;
-  }
-  .intent-cards {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-  }
-  .intent-card {
-    border-radius: 20px;
-    overflow: hidden;
-    text-decoration: none;
-    display: block;
-    position: relative;
-    border: 2px solid transparent;
-    transition: all 0.3s;
-    box-shadow: 0 4px 16px rgba(61,43,31,0.06);
-  }
-  .intent-card:hover {
-    border-color: var(--terracotta);
-    transform: translateY(-4px);
-    box-shadow: 0 16px 48px rgba(61,43,31,0.14);
-  }
-  .intent-card.active { border-color: var(--terracotta); }
-  .intent-card-photo {
-    height: 200px;
-    background-size: cover;
-    background-position: center;
-    position: relative;
-  }
-  .intent-card-photo::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to bottom, rgba(61,43,31,0.1) 0%, rgba(61,43,31,0.55) 100%);
-    transition: opacity 0.3s;
-  }
-  .intent-card:hover .intent-card-photo::after { opacity: 0.75; }
-  .intent-card-body {
-    background: var(--white);
-    padding: 24px 28px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .intent-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
-    background: rgba(196,98,45,0.08);
-    border: 1px solid rgba(196,98,45,0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--terracotta);
-    margin-bottom: 4px;
-    transition: all 0.3s;
-  }
-  .intent-card:hover .intent-icon {
-    background: var(--terracotta);
-    color: white;
-    border-color: var(--terracotta);
-  }
-  .intent-label {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 30px;
-    font-weight: 600;
-    color: var(--earth);
-    line-height: 1;
-  }
-  .intent-desc {
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--earth-mid);
-  }
-  .intent-arrow {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--terracotta);
-    margin-top: 4px;
-    transition: gap 0.2s;
-  }
-  .intent-card:hover .intent-arrow { letter-spacing: 0.3px; }
-
-  /* ── STEP SVG ICON ── */
-  .step-svg-icon {
-    width: 64px;
-    height: 64px;
-    background: rgba(196,98,45,0.07);
-    border-radius: 18px;
-    border: 1px solid rgba(196,98,45,0.12);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 20px;
-    transition: all 0.3s;
-  }
-  .step:hover .step-svg-icon {
-    background: rgba(196,98,45,0.13);
-    transform: scale(1.05);
-  }
-
-  /* ── HOW IT WORKS ── */
-  .how-section {
-    padding: 100px 48px;
-    background: var(--cream);
-  }
-
-  .section-label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1.4px;
-    text-transform: uppercase;
-    color: var(--terracotta);
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .section-label::before {
-    content: '';
-    width: 24px;
-    height: 2px;
-    background: var(--terracotta);
-    display: inline-block;
-  }
-
-  .section-title {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: clamp(36px, 4vw, 52px);
-    font-weight: 600;
-    color: var(--earth);
-    margin-bottom: 60px;
-    line-height: 1.15;
-    letter-spacing: -0.5px;
-    max-width: 600px;
-  }
-
-  .section-title em { font-style: italic; color: var(--terracotta); }
-
-  .steps-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 2px;
-    max-width: 1000px;
-  }
-
-  .step {
-    padding: 40px 36px;
-    background: var(--white);
-    position: relative;
-    transition: transform 0.3s;
-  }
-
-  .step:first-child { border-radius: 24px 0 0 24px; }
-  .step:last-child { border-radius: 0 24px 24px 0; }
-  .step:hover { transform: translateY(-4px); z-index: 2; box-shadow: 0 16px 48px rgba(61,43,31,0.12); border-radius: 20px; }
-
-  .step-num {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 64px;
-    font-weight: 700;
-    color: rgba(196,98,45,0.12);
-    line-height: 1;
-    margin-bottom: 20px;
-  }
-
-  .step-icon {
-    font-size: 32px;
-    margin-bottom: 16px;
-  }
-
-  .step h3 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 24px;
-    font-weight: 600;
-    color: var(--earth);
-    margin-bottom: 12px;
-  }
-
-  .step p {
-    font-size: 14px;
-    line-height: 1.7;
-    color: var(--earth-mid);
-  }
-
-  /* ── SAMPLE MATCHES ── */
-  .matches-section {
-    padding: 100px 48px;
-    background: var(--cream-dark);
-    overflow: hidden;
-  }
-
-  .matches-scroll {
-    display: flex;
-    gap: 20px;
-    margin-top: 48px;
-    overflow-x: auto;
-    padding-bottom: 20px;
-    scrollbar-width: none;
-  }
-
-  .matches-scroll::-webkit-scrollbar { display: none; }
-
-  .match-pair {
-    flex-shrink: 0;
-    width: 340px;
-    background: var(--white);
-    border-radius: 20px;
-    overflow: hidden;
-    box-shadow: 0 4px 16px rgba(61,43,31,0.06);
-    transition: transform 0.3s, box-shadow 0.3s;
-    cursor: default;
-  }
-
-  .match-pair:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 16px 48px rgba(61,43,31,0.14);
-  }
-
-  .match-pair-header {
-    padding: 24px 24px 16px;
-    background: linear-gradient(135deg, var(--earth) 0%, var(--earth-mid) 100%);
-    position: relative;
-  }
-
-  .match-pair-header::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, var(--terracotta), transparent);
-  }
-
-  .match-from {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: rgba(248,241,231,0.45);
-    margin-bottom: 4px;
-  }
-
-  .match-from-name {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 26px;
-    font-weight: 600;
-    color: var(--cream);
-  }
-
-  .match-pair-body { padding: 20px 24px 24px; }
-
-  .match-arrow-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .match-line {
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(90deg, var(--terracotta), var(--olive));
-  }
-
-  .match-pct {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--terracotta);
-    background: rgba(196,98,45,0.1);
-    padding: 4px 10px;
-    border-radius: 100px;
-  }
-
-  .match-to {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: var(--terracotta);
-    margin-bottom: 4px;
-  }
-
-  .match-to-name {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 28px;
-    font-weight: 600;
-    color: var(--earth);
-    margin-bottom: 10px;
-  }
-
-  .match-desc {
-    font-size: 13px;
-    line-height: 1.65;
-    color: var(--earth-mid);
-    margin-bottom: 14px;
-  }
-
-  .match-vibes { display: flex; flex-wrap: wrap; gap: 6px; }
-
-  .match-vibe {
-    font-size: 11px;
-    padding: 3px 9px;
-    border-radius: 100px;
-    font-weight: 500;
-  }
-
-  .vibe-terra { background: rgba(196,98,45,0.1); color: var(--terracotta-dark); }
-  .vibe-olive { background: rgba(107,124,74,0.1); color: var(--olive); }
-  .vibe-gold { background: rgba(201,164,85,0.15); color: #8B6914; }
-
-  /* ── WHY ICON SVG ── */
-  .why-icon-svg {
-    width: 56px;
-    height: 56px;
-    background: rgba(196,98,45,0.08);
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 20px;
-    border: 1px solid rgba(196,98,45,0.12);
-    transition: all 0.3s;
-  }
-  .why-card:hover .why-icon-svg {
-    background: rgba(196,98,45,0.14);
-    transform: scale(1.05);
-  }
-
-  /* ── MATCH PHOTO CARDS ── */
-  .match-photo {
-    height: 160px;
-    background-size: cover;
-    background-position: center;
-    position: relative;
-    overflow: hidden;
-  }
-  .match-photo::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to bottom, rgba(61,43,31,0.2) 0%, rgba(61,43,31,0.7) 100%);
-  }
-  .match-photo-overlay {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 16px 20px;
-    z-index: 2;
-  }
-
-  /* ── PRICING ── */
-  .pricing-section {
-    padding: 100px 48px;
-    background: var(--cream);
-  }
-  .pricing-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 20px;
-    max-width: 1200px;
-    align-items: start;
-  }
-  .price-card {
-    background: var(--white);
-    border-radius: 24px;
-    padding: 36px 32px;
-    border: 1px solid var(--cream-dark);
-    position: relative;
-    transition: transform 0.3s, box-shadow 0.3s;
-  }
-  .price-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 48px rgba(61,43,31,0.10);
-  }
-  .price-card-featured {
-    background: var(--earth);
-    border-color: var(--earth);
-    transform: scale(1.03);
-  }
-  .price-card-featured:hover { transform: scale(1.03) translateY(-4px); }
-  .price-card-lifetime {
-    border-color: rgba(201,164,85,0.4);
-    background: linear-gradient(135deg, var(--white) 0%, rgba(201,164,85,0.05) 100%);
-  }
-  .price-badge {
-    display: inline-block;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    background: var(--terracotta);
-    color: white;
-    padding: 4px 12px;
-    border-radius: 100px;
-    margin-bottom: 16px;
-  }
-  .price-badge-gold {
-    background: var(--gold);
-    color: var(--earth);
-  }
-  .price-tier {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 28px;
-    font-weight: 600;
-    color: var(--earth);
-    margin-bottom: 8px;
-  }
-  .price-card-featured .price-tier { color: var(--cream); }
-  .price-amount {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 52px;
-    font-weight: 700;
-    color: var(--terracotta);
-    line-height: 1;
-    margin-bottom: 12px;
-  }
-  .price-card-featured .price-amount { color: var(--terracotta-light); }
-  .price-card-lifetime .price-amount { color: var(--gold); }
-  .price-amount span {
-    font-size: 16px;
-    font-family: 'DM Sans', sans-serif;
-    font-weight: 400;
-    color: var(--earth-mid);
-  }
-  .price-card-featured .price-amount span { color: rgba(248,241,231,0.5); }
-  .price-desc {
-    font-size: 14px;
-    color: var(--earth-mid);
-    margin-bottom: 24px;
-    line-height: 1.5;
-    border-bottom: 1px solid var(--cream-dark);
-    padding-bottom: 20px;
-  }
-  .price-card-featured .price-desc {
-    color: rgba(248,241,231,0.6);
-    border-color: rgba(255,255,255,0.1);
-  }
-  .price-features {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 28px;
-  }
-  .price-features li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--earth);
-  }
-  .price-card-featured .price-features li { color: var(--cream); }
-  .price-features li.disabled { color: var(--sand); }
-  .price-btn {
-    display: block;
-    text-align: center;
-    text-decoration: none;
-    padding: 14px 24px;
-    border-radius: 100px;
-    font-size: 15px;
-    font-weight: 600;
-    transition: all 0.2s;
-  }
-  .price-btn-outline {
-    border: 1.5px solid var(--sand);
-    color: var(--earth);
-  }
-  .price-btn-outline:hover { border-color: var(--terracotta); color: var(--terracotta); }
-  .price-btn-light {
-    background: var(--cream);
-    color: var(--earth);
-  }
-  .price-btn-light:hover { background: var(--white); transform: translateY(-1px); }
-  .price-btn-gold {
-    background: var(--gold);
-    color: var(--earth);
-    font-weight: 700;
-  }
-  .price-btn-gold:hover { background: #d4aa5e; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(201,164,85,0.4); }
-
-  /* ── ROADMAP ── */
-  .roadmap-section {
-    padding: 100px 48px;
-    background: var(--cream-dark);
-  }
-  .roadmap-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 2px;
-    margin-top: 56px;
-    max-width: 1100px;
-  }
-  .roadmap-col {
-    background: var(--white);
-    padding: 36px 32px;
-  }
-  .roadmap-col:first-child { border-radius: 20px 0 0 20px; }
-  .roadmap-col:last-child { border-radius: 0 20px 20px 0; }
-  .roadmap-phase-label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    color: var(--earth-mid);
-    margin-bottom: 28px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--cream-dark);
-  }
-  .phase-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .phase-dot-live { background: #6B7C4A; box-shadow: 0 0 0 3px rgba(107,124,74,0.2); animation: pulse 2s infinite; }
-  .phase-dot-soon { background: var(--gold); }
-  .phase-dot-future { background: var(--sand); }
-  .roadmap-items { display: flex; flex-direction: column; gap: 20px; }
-  .roadmap-item {
-    display: flex;
-    gap: 14px;
-    align-items: flex-start;
-  }
-  .roadmap-item-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    background: rgba(196,98,45,0.08);
-    border: 1px solid rgba(196,98,45,0.12);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    color: var(--terracotta);
-  }
-  .roadmap-soon .roadmap-item-icon { background: rgba(201,164,85,0.1); border-color: rgba(201,164,85,0.2); color: #8B6914; }
-  .roadmap-future .roadmap-item-icon { background: rgba(107,124,74,0.1); border-color: rgba(107,124,74,0.2); color: var(--olive); }
-  .roadmap-item-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--earth);
-    margin-bottom: 3px;
-  }
-  .roadmap-item-desc {
-    font-size: 12px;
-    line-height: 1.55;
-    color: var(--earth-mid);
-  }
-
-  /* ── RESPONSIVE ADDITIONS ── */
-  @media (max-width: 900px) {
-    .pricing-grid { grid-template-columns: repeat(2, 1fr); }
-    .price-card-featured { transform: none; }
-    .price-card-featured:hover { transform: translateY(-4px); }
-    .roadmap-grid { grid-template-columns: 1fr; }
-    .roadmap-col:first-child, .roadmap-col:last-child { border-radius: 20px; }
-    .roadmap-col { border-radius: 20px; }
-    .pricing-section, .roadmap-section { padding: 60px 24px; }
-  }
-  @media (max-width: 600px) {
-    .pricing-grid { grid-template-columns: 1fr; }
-  }
-
-  .why-section {
-    padding: 100px 48px;
-    background: var(--white);
-  }
-
-  .why-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 32px;
-    margin-top: 60px;
-    max-width: 1100px;
-  }
-
-  .why-card {
-    padding: 36px 32px;
-    border-radius: 20px;
-    border: 1px solid var(--cream-dark);
-    transition: all 0.3s;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .why-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, var(--terracotta), var(--gold));
-    transform: scaleX(0);
-    transform-origin: left;
-    transition: transform 0.3s;
-  }
-
-  .why-card:hover::before { transform: scaleX(1); }
-  .why-card:hover { transform: translateY(-4px); box-shadow: 0 16px 48px rgba(61,43,31,0.08); }
-
-  .why-icon { font-size: 36px; margin-bottom: 20px; }
-
-  .why-card h3 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--earth);
-    margin-bottom: 10px;
-  }
-
-  .why-card p {
-    font-size: 14px;
-    line-height: 1.7;
-    color: var(--earth-mid);
-  }
-
-  /* ── NEWSLETTER ── */
-  .newsletter-section {
-    padding: 100px 48px;
-    background: linear-gradient(135deg, var(--terracotta-dark) 0%, var(--earth) 100%);
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .newsletter-section::before {
-    content: '';
-    position: absolute;
-    top: -100px;
-    right: -100px;
-    width: 400px;
-    height: 400px;
-    border-radius: 50%;
-    background: rgba(196,98,45,0.15);
-  }
-
-  .newsletter-section::after {
-    content: '';
-    position: absolute;
-    bottom: -80px;
-    left: -80px;
-    width: 300px;
-    height: 300px;
-    border-radius: 50%;
-    background: rgba(107,124,74,0.1);
-  }
-
-  .newsletter-inner { position: relative; z-index: 2; max-width: 540px; margin: 0 auto; }
-
-  .newsletter-inner h2 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: clamp(36px, 4vw, 52px);
-    font-weight: 600;
-    color: var(--cream);
-    margin-bottom: 16px;
-    line-height: 1.1;
-  }
-
-  .newsletter-inner p {
-    font-size: 16px;
-    color: rgba(248,241,231,0.65);
-    margin-bottom: 36px;
-    line-height: 1.6;
-  }
-
-  .newsletter-form {
-    display: flex;
-    gap: 10px;
-    max-width: 440px;
-    margin: 0 auto;
-  }
-
-  .newsletter-form input {
-    flex: 1;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 12px;
-    padding: 16px 20px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    color: var(--cream);
-    outline: none;
-    transition: border-color 0.2s;
-  }
-
-  .newsletter-form input::placeholder { color: rgba(248,241,231,0.35); }
-  .newsletter-form input:focus { border-color: var(--terracotta-light); }
-
-  .newsletter-form button {
-    background: var(--cream);
-    color: var(--terracotta-dark);
-    border: none;
-    border-radius: 12px;
-    padding: 16px 24px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-  }
-
-  .newsletter-form button:hover {
-    background: var(--white);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-  }
-
-  .newsletter-success {
-    display: none;
-    background: rgba(107,124,74,0.2);
-    border: 1px solid rgba(107,124,74,0.4);
-    border-radius: 12px;
-    padding: 16px 24px;
-    color: #b8d4a0;
-    font-size: 14px;
-    margin-top: 16px;
-  }
-
-  /* ── FOOTER ── */
-  footer {
-    background: var(--earth);
-    padding: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .footer-logo {
-    font-family: 'DM Serif Display', serif;
-    font-size: 20px;
-    color: var(--cream);
-  }
-
-  .footer-logo span { color: var(--terracotta-light); }
-
-  .footer-tagline {
-    font-size: 13px;
-    color: rgba(248,241,231,0.4);
-    margin-top: 6px;
-  }
-
-  .footer-links {
-    display: flex;
-    gap: 28px;
-    list-style: none;
-  }
-
-  .footer-links a {
-    text-decoration: none;
-    font-size: 13px;
-    color: rgba(248,241,231,0.45);
-    transition: color 0.2s;
-  }
-
-  .footer-links a:hover { color: var(--terracotta-light); }
-
-  .footer-copy {
-    font-size: 12px;
-    color: rgba(248,241,231,0.3);
-  }
-
-  /* ── STATS BAR ── */
-  .stats-bar {
-    background: var(--cream-dark);
-    padding: 28px 48px;
-    display: flex;
-    justify-content: center;
-    gap: 80px;
-    border-top: 1px solid var(--sand);
-    border-bottom: 1px solid var(--sand);
-  }
-
-  .stat {
-    text-align: center;
-  }
-
-  .stat-num {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 40px;
-    font-weight: 700;
-    color: var(--terracotta);
-    line-height: 1;
-  }
-
-  .stat-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--earth-mid);
-    margin-top: 4px;
-    letter-spacing: 0.3px;
-  }
-
-  /* Responsive */
-  @media (max-width: 900px) {
-    .intent-cards { grid-template-columns: 1fr; }
-    .intent-section { padding: 48px 24px; }
-    nav { padding: 16px 24px; }
-    .nav-links { display: none; }
-    .hero { flex-direction: column; padding: 100px 24px 60px; gap: 40px; }
-    .hero-demo { width: 100%; margin-left: 0; }
-    .search-form { grid-template-columns: 1fr; }
-    .steps-grid { grid-template-columns: 1fr; }
-    .step:first-child, .step:last-child { border-radius: 20px; }
-    .why-grid { grid-template-columns: 1fr; }
-    .stats-bar { gap: 40px; flex-wrap: wrap; }
-    footer { flex-direction: column; gap: 24px; text-align: center; }
-    .footer-links { justify-content: center; }
-    .how-section, .matches-section, .why-section, .newsletter-section, .search-section { padding: 60px 24px; }
-    .booking-btns { flex-direction: column; }
-    .suggestions-grid { grid-template-columns: 1fr; }
-  }
-
-  /* VIBE SELECTOR */
-  .vibe-selector-wrap { grid-column: 1 / -1; padding: 0 2px; }
-  .vibe-selector-label { font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(248,241,231,0.5); font-weight: 600; margin-bottom: 10px; }
-  .vibe-pills { display: flex; flex-wrap: wrap; gap: 8px; }
-  .vibe-pill { display: inline-flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: 100px; border: 1.5px solid rgba(248,241,231,0.2); background: rgba(248,241,231,0.05); color: rgba(248,241,231,0.7); font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.2s; user-select: none; white-space: nowrap; }
-  .vibe-pill:hover { border-color: var(--terracotta-light); color: var(--cream); }
-  .vibe-pill.active { background: var(--terracotta); border-color: var(--terracotta); color: white; font-weight: 600; }
-
-  /* RESULT PHOTO */
-  .result-photo { width: 100%; height: 200px; object-fit: cover; border-radius: 12px; margin-bottom: 16px; display: block; }
-  .result-photo-placeholder { width: 100%; height: 180px; border-radius: 12px; margin-bottom: 16px; background: linear-gradient(135deg, rgba(196,98,45,0.2), rgba(61,43,31,0.4)); display: flex; align-items: center; justify-content: center; color: rgba(248,241,231,0.3); font-size: 13px; }
-
-  /* RESULT MAP */
-  .result-map { width: 100%; height: 280px; border-radius: 12px; margin: 16px 0; position: relative; }
-  .result-map.fullscreen { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; border-radius: 0 !important; z-index: 9999 !important; margin: 0 !important; overflow: visible !important; }
-  .map-expand-btn { position: absolute; top: 8px; left: 8px; z-index: 10; background: rgba(61,43,31,0.85); color: var(--cream); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; backdrop-filter: blur(4px); }
-  .map-expand-btn:hover { background: var(--terracotta); }
-  .map-layer-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .map-layer-pill { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: rgba(248,241,231,0.6); font-size: 12px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.2s; user-select: none; }
-  .map-layer-pill:hover { border-color: var(--terracotta-light); color: var(--cream); }
-  .map-3d-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 100px; border: 1.5px solid rgba(255,255,255,0.15); background: rgba(20,20,20,0.75); color: rgba(248,241,231,0.6); font-size: 12px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.2s; user-select: none; backdrop-filter: blur(4px); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-  .map-3d-toggle:hover { border-color: var(--terracotta-light); color: var(--cream); }
-  .map-3d-toggle.active { background: var(--terracotta); border-color: var(--terracotta); color: white; font-weight: 600; }
-  .mapboxgl-ctrl.mapboxgl-ctrl-3d { background: none; box-shadow: none; margin: 0; margin-top: 8px; }
-  .result-map.fullscreen .mapboxgl-ctrl-top-right { display: none; }
-  .mapboxgl-popup-content { background: var(--earth) !important; color: var(--cream) !important; border-radius: 8px !important; padding: 4px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important; }
-  .mapboxgl-popup-tip { border-top-color: var(--earth) !important; }
-  .mapboxgl-ctrl-group { background: var(--earth) !important; border: 1px solid rgba(255,255,255,0.1) !important; }
-  .mapboxgl-ctrl-group button { background: transparent !important; }
-  .mapboxgl-ctrl-group button .mapboxgl-ctrl-icon { filter: invert(1) !important; }
-
-  /* TOP 3 PICKS */
-  .picks-section { margin: 14px 0; }
-  .picks-title { font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase; color: rgba(248,241,231,0.5); font-weight: 600; margin-bottom: 8px; }
-  .picks-list { display: flex; flex-direction: column; gap: 6px; }
-  .pick-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: rgba(255,255,255,0.04); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); }
-  .pick-num { font-size: 11px; color: var(--terracotta-light); font-weight: 700; min-width: 16px; margin-top: 2px; }
-  .pick-info { flex: 1; }
-  .pick-name { font-size: 14px; color: var(--cream); font-weight: 600; margin-bottom: 2px; }
-  .pick-desc { font-size: 12px; color: rgba(248,241,231,0.5); line-height: 1.4; }
-  .pick-link { font-size: 11px; color: var(--terracotta-light); text-decoration: none; margin-top: 4px; display: inline-block; transition: color 0.2s; }
-  .pick-link:hover { color: var(--cream); }
-  .pick-photo { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; flex-shrink: 0; background: rgba(255,255,255,0.05); }
-  .pick-open { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; display: inline-block; margin-top: 4px; }
-  .pick-open.open { background: rgba(107,124,74,0.25); color: #8BA55A; }
-  .pick-open.closed { background: rgba(196,98,45,0.2); color: var(--terracotta-light); }
-
-  /* MUST TRY */
-  .must-try { margin: 12px 0; padding: 12px 14px; background: rgba(196,98,45,0.1); border-radius: 10px; border: 1px solid rgba(196,98,45,0.2); font-size: 13px; color: rgba(248,241,231,0.85); line-height: 1.5; }
-  .must-try strong { color: var(--terracotta-light); }
-
-  /* BOOKING BUTTONS */
-  .booking-btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-  .booking-btn-hotel { flex: 1; min-width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 16px; background: var(--terracotta); color: white; text-decoration: none; border-radius: 100px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; transition: all 0.2s; text-align: center; }
-  .booking-btn-hotel:hover { background: var(--terracotta-dark); transform: translateY(-1px); }
-  .booking-btn-airbnb { flex: 1; min-width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 16px; background: transparent; color: var(--cream); text-decoration: none; border-radius: 100px; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; border: 1.5px solid rgba(248,241,231,0.25); transition: all 0.2s; text-align: center; }
-  .booking-btn-airbnb:hover { border-color: var(--cream); transform: translateY(-1px); }
-
-  /* SUGGESTION SECTION */
-  .suggestions-section { background: var(--cream-dark); padding: 80px 24px; }
-  .suggestions-inner { max-width: 860px; margin: 0 auto; }
-  .suggestions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 40px; }
-  .suggestion-card { background: white; border-radius: 16px; padding: 28px; box-shadow: 0 2px 16px rgba(61,43,31,0.06); }
-  .suggestion-card h3 { font-family: 'Cormorant Garamond', serif; font-size: 22px; color: var(--earth); margin-bottom: 8px; font-weight: 600; }
-  .suggestion-card p { font-size: 14px; color: var(--earth-mid); margin-bottom: 20px; line-height: 1.6; }
-  .suggestion-input { width: 100%; padding: 12px 16px; border: 1.5px solid var(--sand); border-radius: 10px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--earth); background: var(--cream); box-sizing: border-box; margin-bottom: 10px; resize: vertical; min-height: 80px; }
-  .suggestion-input:focus { outline: none; border-color: var(--terracotta); }
-  .suggestion-btn { width: 100%; padding: 12px; background: var(--earth); color: white; border: none; border-radius: 100px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-  .suggestion-btn:hover { background: var(--terracotta); }
-  .suggestion-success { display: none; font-size: 13px; color: var(--terracotta); margin-top: 10px; font-weight: 600; }
-
-  /* PLAN SELECTOR IN WAITLIST */
-  .plan-select { width: 100%; padding: 12px 16px; border: 1.5px solid rgba(248,241,231,0.2); border-radius: 10px; background: rgba(255,255,255,0.08); color: var(--cream); font-family: 'DM Sans', sans-serif; font-size: 14px; margin-bottom: 12px; appearance: none; cursor: pointer; }
-  .plan-select:focus { outline: none; border-color: var(--terracotta); }
-  .plan-select option { background: var(--earth); color: var(--cream); }
-</style>
-</head>
-<body>
-
-<!-- NAV -->
-<nav>
-  <a href="#" class="nav-logo">Match<span>My</span>Hood</a>
-  <ul class="nav-links">
-    <li><a href="#how">How it works</a></li>
-    <li><a href="#examples">Examples</a></li>
-    <li><a href="#pricing">Pricing</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#newsletter" class="nav-cta">Get early access</a></li>
-  </ul>
-</nav>
-
-<!-- HERO -->
-<section class="hero">
-  <div class="hero-bg"></div>
-  <div class="hero-tiles"></div>
-
-  <div class="hero-content">
-    <div class="hero-badge">Now in beta · 30+ cities covered</div>
-    <h1>Love a neighbourhood.<br>Find it <em>everywhere.</em></h1>
-    <p class="hero-sub">
-      Tell us where you love in your city — MatchMyHood finds your perfect equivalent anywhere in the world. Stop staying in the wrong part of town.
-    </p>
-    <div style="display:flex; gap:14px; flex-wrap:wrap;">
-      <a href="#match" style="display:inline-flex; align-items:center; gap:8px; background:var(--terracotta); color:white; text-decoration:none; padding:16px 28px; border-radius:100px; font-weight:600; font-size:15px; transition:all 0.2s;" onmouseover="this.style.background='var(--terracotta-dark)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.background='var(--terracotta)'; this.style.transform='translateY(0)'">
-        ✦ Match my hood
-      </a>
-      <a href="#examples" style="display:inline-flex; align-items:center; gap:8px; background:transparent; color:var(--earth); text-decoration:none; padding:16px 28px; border-radius:100px; font-weight:500; font-size:15px; border:1.5px solid var(--sand); transition:all 0.2s;" onmouseover="this.style.borderColor='var(--terracotta)'; this.style.color='var(--terracotta)'" onmouseout="this.style.borderColor='var(--sand)'; this.style.color='var(--earth)'">
-        See examples →
-      </a>
-    </div>
-  </div>
-
-  <!-- Hero demo card -->
-  <div class="hero-demo">
-    <div class="demo-card">
-      <div class="demo-label">✦ Live match example</div>
-      <div class="demo-match-row">
-        <div class="demo-hood">
-          <div class="demo-hood-city">Lisbon, Portugal</div>
-          <div class="demo-hood-name">Príncipe Real</div>
-        </div>
-        <div class="demo-arrow">
-          <span>→</span>
-          <span class="match-score-badge">92% match</span>
-        </div>
-        <div class="demo-result">
-          <div class="demo-hood-city">Barcelona, Spain</div>
-          <div class="demo-hood-name">Sant Pere</div>
-        </div>
-      </div>
-      <div class="demo-tags">
-        <span class="demo-tag">Bohemian & leafy</span>
-        <span class="demo-tag">Natural wine bars</span>
-        <span class="demo-tag green">Walkable</span>
-        <span class="demo-tag green">Artsy</span>
-        <span class="demo-tag">Boutique shops</span>
-        <span class="demo-tag">Local crowd</span>
-      </div>
-      <div class="demo-why">
-        "Both are elegant, tree-lined neighbourhoods loved by creatives — independent wine bars, design boutiques, and a relaxed local energy far from the tourist circuit."
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- STATS BAR -->
-<div class="stats-bar">
-  <div class="stat">
-    <div class="stat-num">30+</div>
-    <div class="stat-label">Cities covered</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">500+</div>
-    <div class="stat-label">Neighbourhoods mapped</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">8</div>
-    <div class="stat-label">Lifestyle dimensions</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">Free</div>
-    <div class="stat-label">To get started</div>
-  </div>
-</div>
-
-<!-- INTENT MODE SELECTOR -->
-<section class="intent-section">
-  <div class="intent-inner">
-    <p class="intent-pre">I am looking for a neighbourhood because I am planning to…</p>
-    <div class="intent-cards">
-
-      <a href="#match" class="intent-card" id="intentVisit" onclick="setIntent('visit')">
-        <div class="intent-card-photo" style="background-image:url('https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=700&q=80')"></div>
-        <div class="intent-card-body">
-          <div class="intent-icon">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M4 20 C4 20 6 12 14 12 C22 12 24 20 24 20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M14 4 L14 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M8 6 L11 9 M20 6 L17 9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-              <circle cx="14" cy="20" r="4" stroke="currentColor" stroke-width="1.5" fill="rgba(255,255,255,0.1)"/>
-              <path d="M3 24 L25 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <div class="intent-label">Visit</div>
-          <div class="intent-desc">I'm travelling and want to find the best neighbourhood to stay in</div>
-          <div class="intent-arrow">Find where to stay →</div>
-        </div>
-      </a>
-
-      <a href="#match" class="intent-card" id="intentMove" onclick="setIntent('move')">
-        <div class="intent-card-photo" style="background-image:url('https://images.unsplash.com/photo-1560185007-c5ca9d2c014d?w=700&q=80')"></div>
-        <div class="intent-card-body">
-          <div class="intent-icon">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M14 3 L26 10 L26 25 L2 25 L2 10 Z" stroke="currentColor" stroke-width="1.5" fill="rgba(255,255,255,0.08)" stroke-linejoin="round"/>
-              <path d="M9 25 L9 16 L14 16 L19 16 L19 25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <rect x="11" y="16" width="6" height="9" rx="1" stroke="currentColor" stroke-width="1.3" fill="rgba(255,255,255,0.1)"/>
-              <path d="M14 3 L2 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <div class="intent-label">Move</div>
-          <div class="intent-desc">I'm relocating and want to find a neighbourhood that feels like home</div>
-          <div class="intent-arrow">Find where to live →</div>
-        </div>
-      </a>
-
-    </div>
-  </div>
-</section>
-
-<!-- HOW IT WORKS -->
-<section class="how-section" id="how">
-  <div class="section-label">How it works</div>
-  <h2 class="section-title">Three steps to finding your <em>perfect neighbourhood</em></h2>
-  <div class="steps-grid">
-    <div class="step">
-      <div class="step-num">01</div>
-      <div class="step-svg-icon">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-          <path d="M18 4 L32 12 L32 32 L4 32 L4 12 Z" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.07)" stroke-linejoin="round"/>
-          <path d="M12 32 L12 22 L18 22 L24 22 L24 32" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <rect x="14" y="22" width="8" height="10" rx="1" stroke="#C4622D" stroke-width="1.3" fill="rgba(196,98,45,0.1)"/>
-          <path d="M18 4 L4 12" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <circle cx="26" cy="14" r="3" stroke="#C4622D" stroke-width="1.2" fill="rgba(196,98,45,0.1)"/>
-        </svg>
-      </div>
-      <h3>Tell us your favourite hood</h3>
-      <p>Select your home city and the neighbourhood you love most — the one that just feels right. The coffee, the streets, the pace, the people.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">02</div>
-      <div class="step-svg-icon">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-          <circle cx="18" cy="18" r="14" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.06)"/>
-          <ellipse cx="18" cy="18" rx="5.5" ry="14" stroke="#C4622D" stroke-width="1.2"/>
-          <path d="M4.5 18 L31.5 18" stroke="#C4622D" stroke-width="1.2" stroke-linecap="round"/>
-          <path d="M6 11 L30 11 M6 25 L30 25" stroke="#C4622D" stroke-width="1" stroke-linecap="round" stroke-dasharray="2 3"/>
-          <path d="M22 8 L26 6 L28 10" stroke="#C4622D" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="rgba(196,98,45,0.1)"/>
-        </svg>
-      </div>
-      <h3>Choose your destination</h3>
-      <p>Pick any city in our network. Our AI analyses walkability, food scene, nightlife, green space, cost level, safety, and wine bar culture.</p>
-    </div>
-    <div class="step">
-      <div class="step-num">03</div>
-      <div class="step-svg-icon">
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-          <circle cx="18" cy="18" r="14" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.06)"/>
-          <circle cx="18" cy="18" r="8" stroke="#C4622D" stroke-width="1.2" fill="rgba(196,98,45,0.05)"/>
-          <circle cx="18" cy="18" r="3" fill="#C4622D"/>
-          <path d="M18 4 L18 8 M18 28 L18 32 M4 18 L8 18 M28 18 L32 18" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h3>Get your matches</h3>
-      <p>We return your single best neighbourhood match with a similarity score, personality explanation, food & wine picks, and direct booking links.</p>
-    </div>
-  </div>
-</section>
-
-<!-- SAMPLE MATCHES -->
-<section class="matches-section" id="examples">
-  <div class="section-label">Match examples</div>
-  <h2 class="section-title">Neighbourhoods that <em>speak the same language</em></h2>
-
-  <div class="matches-scroll">
-
-    <div class="match-pair">
-      <div class="match-photo" style="background-image:url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80')">
-        <div class="match-photo-overlay">
-          <div class="match-from">Lisbon, Portugal</div>
-          <div class="match-from-name">Chiado</div>
-        </div>
-      </div>
-      <div class="match-pair-body">
-        <div class="match-arrow-row">
-          <div class="match-line"></div>
-          <div class="match-pct">93% match</div>
-        </div>
-        <div class="match-to">Rome, Italy</div>
-        <div class="match-to-name">Prati</div>
-        <div class="match-desc">Elegant, literary, upscale cafés and independent bookshops, sophisticated locals, timeless European energy.</div>
-        <div class="match-vibes">
-          <span class="match-vibe vibe-terra">Literary</span>
-          <span class="match-vibe vibe-olive">Elegant</span>
-          <span class="match-vibe vibe-gold">Great cafés</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="match-pair">
-      <div class="match-photo" style="background-image:url('https://images.unsplash.com/photo-1529154036614-a60975f5c760?w=600&q=80')">
-        <div class="match-photo-overlay">
-          <div class="match-from">Rome, Italy</div>
-          <div class="match-from-name">Trastevere</div>
-        </div>
-      </div>
-      <div class="match-pair-body">
-        <div class="match-arrow-row">
-          <div class="match-line"></div>
-          <div class="match-pct">91% match</div>
-        </div>
-        <div class="match-to">Lisbon, Portugal</div>
-        <div class="match-to-name">Príncipe Real</div>
-        <div class="match-desc">Leafy, bohemian, artisan coffee and natural wine, fashionable but not flashy, loved by creatives.</div>
-        <div class="match-vibes">
-          <span class="match-vibe vibe-terra">Bohemian</span>
-          <span class="match-vibe vibe-olive">Artsy</span>
-          <span class="match-vibe vibe-gold">Natural wine</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="match-pair">
-      <div class="match-photo" style="background-image:url('https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&q=80')">
-        <div class="match-photo-overlay">
-          <div class="match-from">London, UK</div>
-          <div class="match-from-name">Shoreditch</div>
-        </div>
-      </div>
-      <div class="match-pair-body">
-        <div class="match-arrow-row">
-          <div class="match-line"></div>
-          <div class="match-pct">88% match</div>
-        </div>
-        <div class="match-to">Berlin, Germany</div>
-        <div class="match-to-name">Prenzlauer Berg</div>
-        <div class="match-desc">Creative hub, street art, independent cafés, young professional crowd, great nightlife.</div>
-        <div class="match-vibes">
-          <span class="match-vibe vibe-terra">Creative</span>
-          <span class="match-vibe vibe-olive">Street art</span>
-          <span class="match-vibe vibe-gold">Nightlife</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="match-pair">
-      <div class="match-photo" style="background-image:url('https://images.unsplash.com/photo-1549144511-f099e773c147?w=600&q=80')">
-        <div class="match-photo-overlay">
-          <div class="match-from">Paris, France</div>
-          <div class="match-from-name">Le Marais</div>
-        </div>
-      </div>
-      <div class="match-pair-body">
-        <div class="match-arrow-row">
-          <div class="match-line"></div>
-          <div class="match-pct">90% match</div>
-        </div>
-        <div class="match-to">Amsterdam, Netherlands</div>
-        <div class="match-to-name">Jordaan</div>
-        <div class="match-desc">Historic, artistic, canal-side wine bars, independent galleries, fashionable without pretension.</div>
-        <div class="match-vibes">
-          <span class="match-vibe vibe-terra">Historic</span>
-          <span class="match-vibe vibe-olive">Galleries</span>
-          <span class="match-vibe vibe-gold">Canal life</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="match-pair">
-      <div class="match-photo" style="background-image:url('https://images.unsplash.com/photo-1523531294919-4bcd7c65e216?w=600&q=80')">
-        <div class="match-photo-overlay">
-          <div class="match-from">Barcelona, Spain</div>
-          <div class="match-from-name">Gràcia</div>
-        </div>
-      </div>
-      <div class="match-pair-body">
-        <div class="match-arrow-row">
-          <div class="match-line"></div>
-          <div class="match-pct">87% match</div>
-        </div>
-        <div class="match-to">Madrid, Spain</div>
-        <div class="match-to-name">Malasaña</div>
-        <div class="match-desc">Village-like squares, alternative culture, vintage shops, indie bars, strong community feel.</div>
-        <div class="match-vibes">
-          <span class="match-vibe vibe-terra">Village feel</span>
-          <span class="match-vibe vibe-olive">Indie bars</span>
-          <span class="match-vibe vibe-gold">Vintage</span>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</section>
-
-<!-- MATCH TOOL (AI-POWERED) -->
-<section class="search-section" id="match">
-  <div class="search-inner">
-    <h2>Find your <em>match</em> now</h2>
-    <p>Powered by AI · Free to use · No account needed</p>
-
-    <div class="search-form">
-      <div class="form-group">
-        <label>Your home city</label>
-        <select id="homeCity">
-          <option value="">Select your city...</option>
-          <optgroup label="🇪🇺 Europe">
-            <option value="Lisbon">Lisbon</option>
-            <option value="Porto">Porto</option>
-            <option value="London">London</option>
-            <option value="Paris">Paris</option>
-            <option value="Barcelona">Barcelona</option>
-            <option value="Madrid">Madrid</option>
-            <option value="Amsterdam">Amsterdam</option>
-            <option value="Rome">Rome</option>
-            <option value="Berlin">Berlin</option>
-            <option value="Vienna">Vienna</option>
-            <option value="Munich">Munich</option>
-            <option value="Düsseldorf">Düsseldorf</option>
-            <option value="Frankfurt">Frankfurt</option>
-            <option value="Copenhagen">Copenhagen</option>
-            <option value="Stockholm">Stockholm</option>
-            <option value="Prague">Prague</option>
-            <option value="Budapest">Budapest</option>
-            <option value="Seville">Seville</option>
-            <option value="Florence">Florence</option>
-            <option value="Milan">Milan</option>
-            <option value="Brussels">Brussels</option>
-          </optgroup>
-          <optgroup label="🌎 Americas">
-            <option value="New York">New York</option>
-            <option value="Los Angeles">Los Angeles</option>
-            <option value="San Francisco">San Francisco</option>
-            <option value="Chicago">Chicago</option>
-            <option value="Miami">Miami</option>
-            <option value="Boston">Boston</option>
-            <option value="Washington DC">Washington DC</option>
-            <option value="Toronto">Toronto</option>
-            <option value="Montreal">Montreal</option>
-            <option value="Mexico City">Mexico City</option>
-            <option value="São Paulo">São Paulo</option>
-            <option value="Buenos Aires">Buenos Aires</option>
-          </optgroup>
-          <optgroup label="🌏 Asia Pacific">
-            <option value="Tokyo">Tokyo</option>
-            <option value="Seoul">Seoul</option>
-            <option value="Singapore">Singapore</option>
-            <option value="Dubai">Dubai</option>
-            <option value="Sydney">Sydney</option>
-            <option value="Melbourne">Melbourne</option>
-            <option value="Beijing">Beijing</option>
-            <option value="Shanghai">Shanghai</option>
-            <option value="Bangkok">Bangkok</option>
-          </optgroup>
-          <optgroup label="🌍 Africa & Middle East">
-            <option value="Cape Town">Cape Town</option>
-            <option value="Marrakech">Marrakech</option>
-          </optgroup>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Your favourite neighbourhood</label>
-        <input type="text" id="homeHood" placeholder="e.g. Príncipe Real, Shoreditch…" />
-      </div>
-      <div class="form-group">
-        <label>Destination city</label>
-        <select id="destCity">
-          <option value="">Select destination...</option>
-          <optgroup label="🇪🇺 Europe">
-            <option value="Lisbon">Lisbon</option>
-            <option value="Porto">Porto</option>
-            <option value="London">London</option>
-            <option value="Paris">Paris</option>
-            <option value="Barcelona">Barcelona</option>
-            <option value="Madrid">Madrid</option>
-            <option value="Amsterdam">Amsterdam</option>
-            <option value="Rome">Rome</option>
-            <option value="Berlin">Berlin</option>
-            <option value="Vienna">Vienna</option>
-            <option value="Munich">Munich</option>
-            <option value="Düsseldorf">Düsseldorf</option>
-            <option value="Frankfurt">Frankfurt</option>
-            <option value="Copenhagen">Copenhagen</option>
-            <option value="Stockholm">Stockholm</option>
-            <option value="Prague">Prague</option>
-            <option value="Budapest">Budapest</option>
-            <option value="Seville">Seville</option>
-            <option value="Florence">Florence</option>
-            <option value="Milan">Milan</option>
-            <option value="Istanbul">Istanbul</option>
-            <option value="Brussels">Brussels</option>
-          </optgroup>
-          <optgroup label="🌎 Americas">
-            <option value="New York">New York</option>
-            <option value="Los Angeles">Los Angeles</option>
-            <option value="San Francisco">San Francisco</option>
-            <option value="Chicago">Chicago</option>
-            <option value="Miami">Miami</option>
-            <option value="Boston">Boston</option>
-            <option value="Washington DC">Washington DC</option>
-            <option value="Toronto">Toronto</option>
-            <option value="Montreal">Montreal</option>
-            <option value="Mexico City">Mexico City</option>
-            <option value="São Paulo">São Paulo</option>
-            <option value="Rio de Janeiro">Rio de Janeiro</option>
-            <option value="Buenos Aires">Buenos Aires</option>
-          </optgroup>
-          <optgroup label="🌏 Asia Pacific">
-            <option value="Tokyo">Tokyo</option>
-            <option value="Seoul">Seoul</option>
-            <option value="Singapore">Singapore</option>
-            <option value="Dubai">Dubai</option>
-            <option value="Sydney">Sydney</option>
-            <option value="Melbourne">Melbourne</option>
-            <option value="Beijing">Beijing</option>
-            <option value="Shanghai">Shanghai</option>
-            <option value="Bangkok">Bangkok</option>
-            <option value="Bali">Bali</option>
-          </optgroup>
-          <optgroup label="🌍 Africa & Middle East">
-            <option value="Cape Town">Cape Town</option>
-            <option value="Marrakech">Marrakech</option>
-          </optgroup>
-        </select>
-      </div>
-      <button class="search-btn" id="matchBtn" onclick="runMatch()">
-        <span id="btnText">✦ Match it</span>
-      </button>
-      <div class="vibe-selector-wrap">
-        <div class="vibe-selector-label" id="vibeSelectorLabel">✦ Your vibe (optional — select all that apply)</div>
-        <div class="vibe-pills" id="vibePills">
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Wine &amp; Nightlife">🍷 Wine &amp; Nightlife</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Shopping &amp; Boutiques">🛍️ Shopping &amp; Boutiques</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Food &amp; Restaurants">🍽️ Food &amp; Restaurants</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Parks &amp; Outdoors">🌿 Parks &amp; Outdoors</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Family Friendly">👨‍👩‍👧 Family Friendly</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Digital Nomad">💻 Digital Nomad</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Culture &amp; Architecture">🏛️ Culture &amp; Architecture</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Music &amp; Arts">🎵 Music &amp; Arts</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Cafés &amp; Chill">☕ Cafés &amp; Chill</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Off the Beaten Track">🗺️ Off the Beaten Track</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="LGBT+ Friendly">🏳️‍🌈 LGBT+ Friendly</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Senior Friendly">🧓 Senior Friendly</span>
-          <span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="Accessible">♿ Accessible</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="loading-msg" id="loadingMsg">
-      <span class="loading-dots">Finding your neighbourhood match</span>
-    </div>
-
-    <div class="error-msg" id="errorMsg"></div>
-
-  </div>
-</section>
-
-<!-- DYNAMIC RESULTS -->
-<section class="search-section" id="results" style="padding-top:0; background: var(--earth);">
-  <div class="search-inner" style="max-width:900px;">
-    <div class="results-area" id="resultsArea"></div>
-  </div>
-</section>
-
-<!-- WHY MATCHMYHOOD -->
-<section class="why-section">
-  <div class="section-label">Why MatchMyHood</div>
-  <h2 class="section-title">Stop landing in the <em>wrong part</em> of town</h2>
-  <div class="why-grid">
-
-    <div class="why-card">
-      <div class="why-icon-svg">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <circle cx="16" cy="16" r="14" stroke="#C4622D" stroke-width="1.5"/>
-          <circle cx="16" cy="16" r="6" fill="rgba(196,98,45,0.15)" stroke="#C4622D" stroke-width="1.5"/>
-          <circle cx="16" cy="16" r="2.5" fill="#C4622D"/>
-          <line x1="16" y1="2" x2="16" y2="8" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <line x1="16" y1="24" x2="16" y2="30" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <line x1="2" y1="16" x2="8" y2="16" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <line x1="24" y1="16" x2="30" y2="16" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h3>Personality-first matching</h3>
-      <p>We don't just compare locations — we compare lifestyle DNA. Walkability, food scene, wine bar culture, nightlife energy, safety, cost, and green space all factor in.</p>
-    </div>
-
-    <div class="why-card">
-      <div class="why-icon-svg">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <path d="M8 6 C8 6 6 10 6 14 C6 19 10.5 23 16 23 C21.5 23 26 19 26 14 C26 10 24 6 24 6 Z" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.08)" stroke-linejoin="round"/>
-          <path d="M12 23 L11 28 M20 23 L21 28" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M9 28 L23 28" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M11 13 C12 11 14 10 16 10 C18 10 20 11 21 13" stroke="#C4622D" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h3>Food & wine built in</h3>
-      <p>Every matched neighbourhood comes with curated restaurant picks and wine bar recommendations. Because where you eat defines where you stay.</p>
-    </div>
-
-    <div class="why-card">
-      <div class="why-icon-svg">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <path d="M4 22 L16 6 L28 22" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="rgba(196,98,45,0.08)"/>
-          <rect x="13" y="16" width="6" height="6" rx="1" stroke="#C4622D" stroke-width="1.3" fill="rgba(196,98,45,0.1)"/>
-          <path d="M2 22 L30 22" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <circle cx="24" cy="10" r="3.5" fill="rgba(196,98,45,0.12)" stroke="#C4622D" stroke-width="1.3"/>
-          <path d="M24 8.5 L24 10 L25 11" stroke="#C4622D" stroke-width="1" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h3>Built by someone who actually moved</h3>
-      <p>Founded by a Senior Distribution Specialist at Corendon Airlines who has lived in Ireland, Bolivia, Brazil, Italy, and the UK. MatchMyHood is the tool he spent hours wishing existed every time he landed somewhere new and had to figure out which neighbourhood actually felt like home.</p>
-    </div>
-
-    <div class="why-card">
-      <div class="why-icon-svg">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <rect x="4" y="10" width="24" height="18" rx="3" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.06)"/>
-          <path d="M10 10 L10 7 C10 5.3 11.3 4 13 4 L19 4 C20.7 4 22 5.3 22 7 L22 10" stroke="#C4622D" stroke-width="1.5" stroke-linecap="round"/>
-          <circle cx="16" cy="19" r="3" fill="rgba(196,98,45,0.15)" stroke="#C4622D" stroke-width="1.3"/>
-          <path d="M16 22 L16 25" stroke="#C4622D" stroke-width="1.3" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h3>Book where you match</h3>
-      <p>Direct links to Booking.com filtered by your matched neighbourhood. No more scrolling through 400 properties without knowing which part of the city is right for you.</p>
-    </div>
-
-    <div class="why-card">
-      <div class="why-icon-svg">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <circle cx="16" cy="16" r="12" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.06)"/>
-          <ellipse cx="16" cy="16" rx="5" ry="12" stroke="#C4622D" stroke-width="1.2"/>
-          <path d="M4.5 11 L27.5 11 M4.5 21 L27.5 21" stroke="#C4622D" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h3>30+ cities, growing weekly</h3>
-      <p>Europe, North America, Southeast Asia. We're adding new cities every week, starting with the destinations digital nomads and independent travellers love most.</p>
-    </div>
-
-    <div class="why-card">
-      <div class="why-icon-svg">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <path d="M16 4 L19.5 12 L28 13 L22 19 L23.5 28 L16 24 L8.5 28 L10 19 L4 13 L12.5 12 Z" stroke="#C4622D" stroke-width="1.5" fill="rgba(196,98,45,0.1)" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <h3>Free to start</h3>
-      <p>3 matches per month, free forever. Upgrade to Explorer for unlimited matches, food crawl builder, and our weekly Neighbourhood of the Week newsletter.</p>
-    </div>
-
-  </div>
-</section>
-
-<!-- PRICING -->
-<section class="pricing-section" id="pricing">
-  <div class="section-label">Pricing</div>
-  <h2 class="section-title">Pricing <em>coming soon</em></h2>
-  <p style="color:var(--earth-mid); font-size:16px; margin-bottom:56px; max-width:520px;">We're still building. MatchMyHood is free to use while we're in beta — join the waitlist to be first to know when plans launch and lock in an early-bird rate.</p>
-  <div style="max-width:480px; margin:0 auto; background:linear-gradient(135deg, rgba(196,98,45,0.07), rgba(61,43,31,0.12)); border:1.5px solid rgba(196,98,45,0.2); border-radius:24px; padding:48px 40px; text-align:center;">
-    <div style="font-size:48px; margin-bottom:16px;">🗺️</div>
-    <h3 style="font-family:'Cormorant Garamond',serif; font-size:28px; font-weight:600; color:var(--earth); margin-bottom:12px;">Free during beta</h3>
-    <p style="font-size:15px; color:var(--earth-mid); line-height:1.7; margin-bottom:32px;">Unlimited neighbourhood matches, full maps, real amenity data — all free while we're in beta. Join the waitlist and we'll tell you first when paid plans go live.</p>
-    <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:28px; text-align:left; max-width:300px; margin-left:auto; margin-right:auto;">
-      <div style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--earth-mid);"><span style="color:var(--olive); font-size:16px;">✓</span> Neighbourhood character matching</div>
-      <div style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--earth-mid);"><span style="color:var(--olive); font-size:16px;">✓</span> Interactive maps with real data</div>
-      <div style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--earth-mid);"><span style="color:var(--olive); font-size:16px;">✓</span> Top restaurants & bars</div>
-      <div style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--earth-mid);"><span style="color:var(--olive); font-size:16px;">✓</span> Transit lines & amenity counts</div>
-      <div style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--earth-mid);"><span style="color:var(--gold); font-size:16px;">★</span> Early-bird pricing for waitlist members</div>
-    </div>
-    <a href="#newsletter" style="display:inline-block; background:var(--terracotta); color:white; text-decoration:none; padding:14px 32px; border-radius:100px; font-family:'DM Sans',sans-serif; font-size:15px; font-weight:600; transition:background 0.2s;" onmouseover="this.style.background='var(--terracotta-dark)'" onmouseout="this.style.background='var(--terracotta)'">Join the waitlist →</a>
-  </div>
-</section>
-
-<!-- ROADMAP -->
-<section class="roadmap-section" id="roadmap">
-  <div class="section-label">What's coming</div>
-  <h2 class="section-title">Built in the open — <em>here's the plan</em></h2>
-
-  <div class="roadmap-grid">
-
-    <div class="roadmap-col roadmap-live">
-      <div class="roadmap-phase-label">
-        <span class="phase-dot phase-dot-live"></span>
-        Live now · April 2026
-      </div>
-      <div class="roadmap-items">
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7.5" stroke="currentColor" stroke-width="1.3" fill="rgba(196,98,45,0.1)"/><circle cx="9" cy="9" r="3" fill="currentColor"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">AI neighbourhood matching</div>
-            <div class="roadmap-item-desc">Match any neighbourhood across 30+ cities worldwide</div>
-          </div>
-        </div>
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="4" width="14" height="11" rx="2" stroke="currentColor" stroke-width="1.3" fill="rgba(196,98,45,0.1)"/><path d="M2 7 L16 7" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="11" r="1" fill="currentColor"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Booking.com integration</div>
-            <div class="roadmap-item-desc">Book accommodation in your matched neighbourhood instantly</div>
-          </div>
-        </div>
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2 L11 7 L16 7.5 L12.5 11 L13.5 16 L9 13.5 L4.5 16 L5.5 11 L2 7.5 L7 7 Z" stroke="currentColor" stroke-width="1.3" fill="rgba(196,98,45,0.1)" stroke-linejoin="round"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Food & wine picks</div>
-            <div class="roadmap-item-desc">Curated restaurant and wine bar recommendation per match</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="roadmap-col roadmap-soon">
-      <div class="roadmap-phase-label">
-        <span class="phase-dot phase-dot-soon"></span>
-        Coming · Q3 2026
-      </div>
-      <div class="roadmap-items">
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="2" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.3" fill="rgba(201,164,85,0.1)"/><circle cx="6" cy="6" r="1.5" fill="currentColor" opacity="0.6"/><circle cx="12" cy="6" r="1.5" fill="currentColor" opacity="0.6"/><circle cx="6" cy="12" r="1.5" fill="currentColor" opacity="0.6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Mood restaurant maps</div>
-            <div class="roadmap-item-desc">Curated map of restaurants & bars filtered by mood — romantic, solo, wine crawl, Sunday brunch</div>
-          </div>
-        </div>
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2 C5.7 2 3 4.7 3 8 C3 12 9 16 9 16 C9 16 15 12 15 8 C15 4.7 12.3 2 9 2 Z" stroke="currentColor" stroke-width="1.3" fill="rgba(201,164,85,0.1)"/><circle cx="9" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Neighbourhood map embed</div>
-            <div class="roadmap-item-desc">Interactive map showing your matched neighbourhood boundaries and key spots</div>
-          </div>
-        </div>
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9 L7 13 L15 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Food crawl builder</div>
-            <div class="roadmap-item-desc">AI-generated walking food itinerary within your matched neighbourhood</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="roadmap-col roadmap-future">
-      <div class="roadmap-phase-label">
-        <span class="phase-dot phase-dot-future"></span>
-        Coming · Q4 2026
-      </div>
-      <div class="roadmap-items">
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="5" width="14" height="11" rx="2" stroke="currentColor" stroke-width="1.3" fill="rgba(107,124,74,0.1)"/><path d="M6 5 L6 3.5 C6 2.7 6.7 2 7.5 2 L10.5 2 C11.3 2 12 2.7 12 3.5 L12 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="9" cy="11" r="2" stroke="currentColor" stroke-width="1.2" fill="rgba(107,124,74,0.15)"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Rental & real estate maps</div>
-            <div class="roadmap-item-desc">Short & long-term rentals via Idealista, Spotahome & Booking.com in your matched neighbourhood</div>
-          </div>
-        </div>
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7.5" stroke="currentColor" stroke-width="1.3" fill="rgba(107,124,74,0.1)"/><ellipse cx="9" cy="9" rx="3" ry="7.5" stroke="currentColor" stroke-width="1.1"/><path d="M2 9 L16 9" stroke="currentColor" stroke-width="1.1"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Nomad Mode</div>
-            <div class="roadmap-item-desc">Monthly city guides with co-working density, WiFi quality, visa info, and housing affordability</div>
-          </div>
-        </div>
-        <div class="roadmap-item">
-          <div class="roadmap-item-icon">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 14 L9 3 L16 14 Z" stroke="currentColor" stroke-width="1.3" fill="rgba(107,124,74,0.1)" stroke-linejoin="round"/><path d="M6.5 14 L6.5 10 L11.5 10 L11.5 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-          </div>
-          <div>
-            <div class="roadmap-item-title">Airport & transit layer</div>
-            <div class="roadmap-item-desc">Best neighbourhoods by transit time from major airports — for layovers and arrivals</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</section>
-
-<!-- NEWSLETTER -->
-<section class="newsletter-section" id="newsletter">
-  <div class="newsletter-inner">
-    <h2>The neighbourhood you'll love is out there</h2>
-    <p>Join the waitlist. Get early access, our weekly Neighbourhood of the Week email, and a founding member discount when we launch.</p>
-    <form class="newsletter-form" name="waitlist" method="POST" data-netlify="true" onsubmit="handleWaitlist(event)">
-      <input type="hidden" name="form-name" value="waitlist" />
-      <input type="hidden" name="plan" id="waitlistPlan" value="beta" />
-      <input type="email" name="email" id="emailInput" placeholder="your@email.com" required />
-      <button type="submit">Join waitlist</button>
-    </form>
-    <div class="newsletter-success" id="newsletterSuccess">
-      ✓ You're on the list! We'll be in touch very soon.
-    </div>
-    <p style="font-size:12px; color:rgba(248,241,231,0.3); margin-top:16px;">No spam. Unsubscribe anytime. We hate tourist traps as much as you do.</p>
-  </div>
-</section>
-
-<!-- SUGGESTIONS -->
-<section class="suggestions-section">
-  <div class="suggestions-inner">
-    <div class="section-label">Help us grow</div>
-    <h2 class="section-title" style="color:var(--earth);">Shape the future of <em>MatchMyHood</em></h2>
-    <div class="suggestions-grid">
-
-      <div class="suggestion-card">
-        <h3>🏙️ Suggest a city</h3>
-        <p>Which city should we add next? Tell us where you're travelling and we'll prioritise it.</p>
-        <form name="city-suggestion" method="POST" data-netlify="true" onsubmit="handleSuggestion(event,'city')">
-          <input type="hidden" name="form-name" value="city-suggestion" />
-          <textarea class="suggestion-input" name="city" placeholder="e.g. Tokyo, Buenos Aires, Cape Town…" rows="3" required></textarea>
-          <button type="submit" class="suggestion-btn">Suggest a city →</button>
-          <div class="suggestion-success" id="citySuccess">✓ Thanks! We'll add it to our roadmap.</div>
-        </form>
-      </div>
-
-      <div class="suggestion-card">
-        <h3>💡 Suggest a feature</h3>
-        <p>What would make MatchMyHood more useful for you? We read every suggestion.</p>
-        <form name="feature-suggestion" method="POST" data-netlify="true" onsubmit="handleSuggestion(event,'feature')">
-          <input type="hidden" name="form-name" value="feature-suggestion" />
-          <textarea class="suggestion-input" name="feature" placeholder="e.g. Add restaurant maps, show public transport, compare neighbourhoods side by side…" rows="3" required></textarea>
-          <button type="submit" class="suggestion-btn">Send suggestion →</button>
-          <div class="suggestion-success" id="featureSuccess">✓ Thanks! Your suggestion helps shape the roadmap.</div>
-        </form>
-      </div>
-
-    </div>
-  </div>
-</section>
-
-<!-- FOOTER -->
-<footer>
-  <div>
-    <div class="footer-logo">Match<span>My</span>Hood</div>
-    <div class="footer-tagline">Find your neighbourhood. Anywhere in the world.</div>
-  </div>
-  <ul class="footer-links">
-    <li><a href="#how">How it works</a></li>
-    <li><a href="#match">Try it free</a></li>
-    <li><a href="/cdn-cgi/l/email-protection#b6ded3dadad9f6dbd7c2d5dedbcfded9d9d298d5d9db">Contact</a></li>
-    <li><a href="#">Privacy</a></li>
-  </ul>
-  <div class="footer-copy">© 2026 MatchMyHood</div>
-</footer>
-
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
-<script>
-const UNSPLASH_KEY = 'OaKCSMFgv0aiRZGozXW1aPGh7R8IXoWfPpk24cZOXYA';
-const MAPBOX_TOKEN = 'pk.eyJ1IjoidGlhZ283MDEiLCJhIjoiY21uNjBkbHIxMDBzcDJyc2I1czFrdWt1biJ9.v1XnI4B7BwOQDV17LE-nIg';
-
-const METRO_LINKS = {
-  "Lisbon":        { name: "Metro de Lisboa", url: "https://www.metrolisboa.pt/en/travel/diagrams-and-maps/" },
-  "Porto":         { name: "Metro do Porto", url: "https://en.metrodoporto.pt/pages/364" },
-  "London":        { name: "London Underground", url: "https://tfl.gov.uk/maps/track/tube" },
-  "Paris":         { name: "RATP Paris Métro", url: "https://www.ratp.fr/en/plans-lignes/plans-metro" },
-  "Barcelona":     { name: "Metro Barcelona", url: "https://www.tmb.cat/en/barcelona-metro/map" },
-  "Madrid":        { name: "Metro Madrid", url: "https://www.metromadrid.es/en/travel-on-metro/metro-map" },
-  "Amsterdam":     { name: "GVB Metro Map", url: "https://en.gvb.nl/en/travel-information/journey-planner/route-maps" },
-  "Rome":          { name: "Roma Metropolitana", url: "https://www.atac.roma.it/en/page/metro-rail-connections-and-night-buses" },
-  "Milan":         { name: "ATM Milano Metro", url: "https://www.atm.it/en/ViaggiaConNoi/Pagine/mappa_rete.aspx" },
-  "Berlin":        { name: "BVG Berlin U-Bahn", url: "https://www.bvg.de/en/connections/bvg-maps/tube-map" },
-  "Munich":        { name: "MVV München U-Bahn", url: "https://www.mvv-muenchen.de/en/maps-stations/maps/index.html" },
-  "Vienna":        { name: "Wiener Linien U-Bahn", url: "https://www.wienerlinien.at/en/netzplan.html" },
-  "Copenhagen":    { name: "Copenhagen Metro", url: "https://www.m.dk/en/find-your-route/metro-map/" },
-  "Stockholm":     { name: "SL Tunnelbana", url: "https://sl.se/en/in-english/maps--timetables/" },
-  "Prague":        { name: "Prague Metro", url: "https://www.dpp.cz/en/travelling/network-maps" },
-  "Budapest":      { name: "BKK Budapest Metro", url: "https://bkk.hu/en/maps-and-timetables/maps/" },
-  "Brussels":      { name: "STIB Metro Brussels", url: "https://www.stib-mivb.be/article.html?l=en&_guid=9bc60d5c-6a3d-35a0-3e40-27c2d7dde2b4" },
-  "Istanbul":      { name: "İstanbul Metro", url: "https://www.metro.istanbul/en/haritalar" },
-  "New York":      { name: "MTA NYC Subway", url: "https://new.mta.info/maps" },
-  "Los Angeles":   { name: "LA Metro Rail", url: "https://www.metro.net/riding/maps/" },
-  "San Francisco": { name: "BART Map", url: "https://www.bart.gov/sites/default/files/docs/system-map.pdf" },
-  "Chicago":       { name: "CTA L Map", url: "https://www.transitchicago.com/maps/" },
-  "Washington DC": { name: "WMATA Metro Map", url: "https://www.wmata.com/schedules/maps/" },
-  "Boston":        { name: "MBTA T Map", url: "https://www.mbta.com/maps" },
-  "Toronto":       { name: "TTC Subway Map", url: "https://www.ttc.ca/routes-and-schedules/subway-map" },
-  "Montreal":      { name: "STM Métro", url: "https://www.stm.info/en/info/networks/metro/map" },
-  "Mexico City":   { name: "Metro CDMX", url: "https://metro.cdmx.gob.mx/red-del-metro" },
-  "São Paulo":     { name: "Metrô SP", url: "https://www.metro.sp.gov.br/sua-viagem/mapa-da-rede-metro-cptm.aspx" },
-  "Buenos Aires":  { name: "Subte Buenos Aires", url: "https://www.buenosaires.gob.ar/subte/mapa-de-la-red" },
-  "Tokyo":         { name: "Tokyo Metro Map", url: "https://www.tokyometro.jp/en/subwaymap/" },
-  "Seoul":         { name: "Seoul Metro Map", url: "https://www.seoulmetro.co.kr/en/cyberStation.do" },
-  "Singapore":     { name: "MRT Network Map", url: "https://www.lta.gov.sg/content/ltagov/en/getting_around/public_transport/mrt_and_lrt_trains/system_map.html" },
-  "Dubai":         { name: "Dubai Metro Map", url: "https://dubai.ae/en/information-and-services/transport/dubai-metro" },
-  "Sydney":        { name: "Sydney Metro Map", url: "https://transportnsw.info/routes/maps" },
-  "Melbourne":     { name: "Melbourne Metro", url: "https://www.ptv.vic.gov.au/more/travelling-on-the-network/maps/" },
-  "Bangkok":       { name: "BTS/MRT Bangkok", url: "https://www.bangkokmasstransit.com/" },
-  "Beijing":       { name: "Beijing Subway Map", url: "https://www.bjsubway.com/en/" },
-  "Shanghai":      { name: "Shanghai Metro Map", url: "https://www.shmetro.com/node135/201304/con130892.htm" },
-};
-const FOURSQUARE_KEY = '244GKZ3SYN0QA4CMYR4VXURO3PLM00MUWHAXLJUV04UE05T1';
-const BOOKING_AFF = '7909431';
-const GYG_AFF = 'MLFUF2A';
-const VIATOR_AFF = 'P00293970';
-
-// Property sites per city for LIVE mode
-// Helper functions for property URL building
-const slug = s => encodeURIComponent(s.toLowerCase().replace(/ /g,'-'));
-const enc  = s => encodeURIComponent(s);
-
-const PROPERTY_SITES = {
-  "Lisbon":   [{ name:"Idealista",    url:(h,c)=>`https://www.idealista.pt/arrendar-casas/lisboa/${slug(h)}/` },
-               { name:"Imovirtual",   url:(h,c)=>`https://www.imovirtual.com/arrendar/apartamento/lisboa/?q=${enc(h)}` }],
-  "Porto":    [{ name:"Idealista",    url:(h,c)=>`https://www.idealista.pt/arrendar-casas/porto/${slug(h)}/` },
-               { name:"Imovirtual",   url:(h,c)=>`https://www.imovirtual.com/arrendar/apartamento/porto/?q=${enc(h)}` }],
-  "London":   [{ name:"Rightmove",    url:(h,c)=>`https://www.rightmove.co.uk/property-to-rent/find.html?searchLocation=${enc(h+', London')}&radius=0.5&sortType=6` },
-               { name:"Zoopla",       url:(h,c)=>`https://www.zoopla.co.uk/to-rent/property/london/${slug(h)}/` },
-               { name:"SpareRoom",    url:(h,c)=>`https://www.spareroom.co.uk/flatshare/search_results.pl?where=${enc(h+', London')}&search_type=flatshares` }],
-  // Paris — SeLoger/PAP don't support neighbourhood URLs, LeBonCoin is best available
-  "Paris":    [{ name:"LeBonCoin",    url:(h,c)=>`https://www.leboncoin.fr/recherche?category=10&text=${enc(h+' Paris')}&real_estate_type=2` },
-               { name:"SeLoger",      url:(h,c)=>`https://www.seloger.com/list.htm?idtypebien=1&idtt=1&tri=initial&q=${enc(h+' Paris')}` },
-               { name:"PAP",          url:(h,c)=>`https://www.pap.fr/annonce/locations-appartement-paris-g439?q=${enc(h)}` }],
-  "Barcelona":[{ name:"Idealista",    url:(h,c)=>`https://www.idealista.com/alquiler-viviendas/barcelona/${slug(h)}/` },
-               { name:"Fotocasa",     url:(h,c)=>`https://www.fotocasa.es/es/alquiler/viviendas/barcelona-capital/${slug(h)}/l` }],
-  "Madrid":   [{ name:"Idealista",    url:(h,c)=>`https://www.idealista.com/alquiler-viviendas/madrid/${slug(h)}/` },
-               { name:"Fotocasa",     url:(h,c)=>`https://www.fotocasa.es/es/alquiler/viviendas/madrid-capital/${slug(h)}/l` }],
-  "Seville":  [{ name:"Idealista",    url:(h,c)=>`https://www.idealista.com/alquiler-viviendas/sevilla/${slug(h)}/` },
-               { name:"Fotocasa",     url:(h,c)=>`https://www.fotocasa.es/es/alquiler/viviendas/sevilla-capital/${slug(h)}/l` }],
-  // Amsterdam — Funda slugs are Dutch, Pararius works better in English
-  "Amsterdam":[{ name:"Funda",        url:(h,c)=>`https://www.funda.nl/huur/amsterdam/?q=${enc(h)}` },
-               { name:"Pararius",     url:(h,c)=>`https://www.pararius.com/apartment-for-rent/amsterdam?q=${enc(h)}` }],
-  "Rome":     [{ name:"Immobiliare",  url:(h,c)=>`https://www.immobiliare.it/affitto-case/roma/?qTesto=${enc(h)}` },
-               { name:"Idealista",    url:(h,c)=>`https://www.idealista.it/affitto-case/roma/${slug(h)}/` }],
-  "Florence": [{ name:"Immobiliare",  url:(h,c)=>`https://www.immobiliare.it/affitto-case/firenze/?qTesto=${enc(h)}` },
-               { name:"Idealista",    url:(h,c)=>`https://www.idealista.it/affitto-case/firenze/${slug(h)}/` }],
-  "Milan":    [{ name:"Immobiliare",  url:(h,c)=>`https://www.immobiliare.it/affitto-case/milano/?qTesto=${enc(h)}` },
-               { name:"Idealista",    url:(h,c)=>`https://www.idealista.it/affitto-case/milano/${slug(h)}/` }],
-  "Berlin":   [{ name:"ImmoScout24",  url:(h,c)=>`https://www.immobilienscout24.de/Suche/de/berlin/berlin/wohnung-mieten?freetext=${enc(h)}` },
-               { name:"WG-Gesucht",   url:(h,c)=>`https://www.wg-gesucht.de/wg-zimmer-und-1-zimmer-wohnungen-und-wohnungen-in-Berlin.8.0.1.0.html?freetext=${enc(h)}` }],
-  "Munich":   [{ name:"ImmoScout24",  url:(h,c)=>`https://www.immobilienscout24.de/Suche/de/bayern/muenchen/wohnung-mieten?freetext=${enc(h)}` },
-               { name:"Immowelt",     url:(h,c)=>`https://www.immowelt.de/classified-search?distributionTypes=Rent&estateTypes=Apartment&searchDescription=${enc(h)}` }],
-  "Frankfurt":[{ name:"ImmoScout24",  url:(h,c)=>`https://www.immobilienscout24.de/Suche/de/hessen/frankfurt-am-main/wohnung-mieten?freetext=${enc(h)}` },
-               { name:"Immowelt",     url:(h,c)=>`https://www.immowelt.de/classified-search?distributionTypes=Rent&estateTypes=Apartment&searchDescription=${enc(h)}` }],
-  "Düsseldorf":[{ name:"ImmoScout24", url:(h,c)=>`https://www.immobilienscout24.de/Suche/de/nordrhein-westfalen/duesseldorf/wohnung-mieten?freetext=${enc(h)}` },
-                { name:"Immowelt",    url:(h,c)=>`https://www.immowelt.de/classified-search?distributionTypes=Rent&estateTypes=Apartment&searchDescription=${enc(h)}` }],
-  "Vienna":   [{ name:"Willhaben",    url:(h,c)=>`https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/?keyword=${enc(h)}` },
-               { name:"ImmoScout AT", url:(h,c)=>`https://www.immobilienscout24.at/immobilien/wohnung-mieten/wien?freetext=${enc(h)}` }],
-  "Copenhagen":[{ name:"Lejebolig",   url:(h,c)=>`https://www.lejebolig.dk/lejebolig?q=${enc(h+' København')}` },
-                { name:"Boligsiden",  url:(h,c)=>`https://www.boligsiden.dk/leje/?searchTerm=${enc(h)}` }],
-  "Stockholm":[{ name:"Blocket",      url:(h,c)=>`https://www.blocket.se/bostad/hyra/lagenheter/stockholm?q=${enc(h)}` },
-               { name:"Hemnet",       url:(h,c)=>`https://www.hemnet.se/bostader?q=${enc(h)}` }],
-  "Prague":   [{ name:"Sreality",     url:(h,c)=>`https://www.sreality.cz/hledani/pronajem/byty/praha?hledani=${enc(h)}` },
-               { name:"Bezrealitky",  url:(h,c)=>`https://www.bezrealitky.cz/vypis/pronajem-byt/praha?fulltext=${enc(h)}` }],
-  "Budapest": [{ name:"Ingatlan.com", url:(h,c)=>`https://ingatlan.com/lista/kiado+lakas+budapest?q=${enc(h)}` },
-               { name:"Albérlet.hu",  url:(h,c)=>`https://www.alberlet.hu/kiado-alberlet/budapest/?q=${enc(h)}` }],
-  "Brussels": [{ name:"Immoweb",      url:(h,c)=>`https://www.immoweb.be/en/search/house-and-apartment/for-rent?countries=BE&localities=${enc(h)}&orderBy=relevance` },
-               { name:"Zimmo",        url:(h,c)=>`https://www.zimmo.be/en/to-rent/?search=${enc(h+' Brussels')}` }],
-  "Istanbul": [{ name:"Sahibinden",   url:(h,c)=>`https://www.sahibinden.com/kiralik-daire/istanbul?query=${enc(h)}` },
-               { name:"Emlakjet",     url:(h,c)=>`https://www.emlakjet.com/kiralik-daire/istanbul/?text=${enc(h)}` }],
-  "New York": [{ name:"StreetEasy",   url:(h,c)=>`https://streeteasy.com/for-rent/nyc/${slug(h)}` },
-               { name:"Apartments",   url:(h,c)=>`https://www.apartments.com/${slug(h)}-new-york-ny/` }],
-  "Los Angeles":[{ name:"Zillow",     url:(h,c)=>`https://www.zillow.com/${slug(h)}-los-angeles-ca/rentals/` },
-                 { name:"Apartments", url:(h,c)=>`https://www.apartments.com/${slug(h)}-los-angeles-ca/` }],
-  "San Francisco":[{ name:"Zillow",   url:(h,c)=>`https://www.zillow.com/${slug(h)}-san-francisco-ca/rentals/` },
-                   { name:"Apartments",url:(h,c)=>`https://www.apartments.com/${slug(h)}-san-francisco-ca/` }],
-  "Chicago":  [{ name:"Zillow",       url:(h,c)=>`https://www.zillow.com/${slug(h)}-chicago-il/rentals/` },
-               { name:"Apartments",   url:(h,c)=>`https://www.apartments.com/${slug(h)}-chicago-il/` }],
-  "Miami":    [{ name:"Zillow",       url:(h,c)=>`https://www.zillow.com/${slug(h)}-miami-fl/rentals/` },
-               { name:"Apartments",   url:(h,c)=>`https://www.apartments.com/${slug(h)}-miami-fl/` }],
-  "Boston":   [{ name:"Zillow",       url:(h,c)=>`https://www.zillow.com/${slug(h)}-boston-ma/rentals/` },
-               { name:"Apartments",   url:(h,c)=>`https://www.apartments.com/${slug(h)}-boston-ma/` }],
-  "Washington DC":[{ name:"Zillow",   url:(h,c)=>`https://www.zillow.com/${slug(h)}-washington-dc/rentals/` },
-                   { name:"Apartments",url:(h,c)=>`https://www.apartments.com/${slug(h)}-washington-dc/` }],
-  // Canada — Realtor.ca has no neighbourhood URL, use Kijiji + PadMapper
-  "Toronto":  [{ name:"Kijiji",       url:(h,c)=>`https://www.kijiji.ca/b-apartments-condos/city-of-toronto/q=${enc(h)}/c37l1700273` },
-               { name:"PadMapper",    url:(h,c)=>`https://www.padmapper.com/apartments/toronto-on?q=${enc(h)}` }],
-  "Montreal": [{ name:"Kijiji",       url:(h,c)=>`https://www.kijiji.ca/b-apartments-condos/montreal/q=${enc(h)}/c37l80002` },
-               { name:"PadMapper",    url:(h,c)=>`https://www.padmapper.com/apartments/montreal-qc?q=${enc(h)}` }],
-  // Mexico City — Inmuebles24 SEO paths only exist for indexed hoods, use search instead
-  "Mexico City":[{ name:"Inmuebles24",url:(h,c)=>`https://www.inmuebles24.com/inmuebles?operacion=2&tipo=1&provincia=df&q=${enc(h)}` },
-                 { name:"Lamudi",     url:(h,c)=>`https://www.lamudi.com.mx/buscar/?q=${enc(h+' Ciudad de Mexico')}&for=rent` }],
-  "São Paulo":[{ name:"ZAP Imóveis",  url:(h,c)=>`https://www.zapimoveis.com.br/aluguel/imoveis/sp+sao-paulo+${slug(h)}/` },
-               { name:"VivaReal",     url:(h,c)=>`https://www.vivareal.com.br/aluguel/sp/sao-paulo/${slug(h)}_bairro/` }],
-  "Rio de Janeiro":[{ name:"ZAP Imóveis", url:(h,c)=>`https://www.zapimoveis.com.br/aluguel/imoveis/rj+rio-de-janeiro+${slug(h)}/` },
-                    { name:"VivaReal",    url:(h,c)=>`https://www.vivareal.com.br/aluguel/rj/rio-de-janeiro/${slug(h)}_bairro/` }],
-  "Buenos Aires":[{ name:"ZonaProp",  url:(h,c)=>`https://www.zonaprop.com.ar/departamentos-alquiler.html?q=${enc(h)}` },
-                  { name:"Argenprop", url:(h,c)=>`https://www.argenprop.com/departamento?operacion=alquiler&localidad=${enc(h)}` }],
-  // Tokyo — Suumo needs Japanese, GaijinPot is best for English speakers
-  "Tokyo":    [{ name:"GaijinPot",    url:(h,c)=>`https://housing.gaijinpot.com/en/rent/?region%5B%5D=13&q=${enc(h)}` },
-               { name:"Suumo",        url:(h,c)=>`https://suumo.jp/chintai/tokyo/sc_${enc(h)}/` }],
-  "Seoul":    [{ name:"Dabang",       url:(h,c)=>`https://www.dabangapp.com/map/seoul?search=${enc(h)}` },
-               { name:"Zigbang",      url:(h,c)=>`https://www.zigbang.com/home/search?q=${enc(h)}` }],
-  "Singapore":[{ name:"PropertyGuru", url:(h,c)=>`https://www.propertyguru.com.sg/property-for-rent?freetext=${enc(h)}&listingType=rent` },
-               { name:"99.co",        url:(h,c)=>`https://www.99.co/singapore/rent?q=${enc(h)}` }],
-  "Dubai":    [{ name:"Property Finder",url:(h,c)=>`https://www.propertyfinder.ae/en/rent/apartments-for-rent.html?q=${enc(h)}` },
-               { name:"Bayut",        url:(h,c)=>`https://www.bayut.com/to-rent/apartments/${slug(h)}/` }],
-  "Sydney":   [{ name:"REA",          url:(h,c)=>`https://www.realestate.com.au/rent/in-${slug(h).replace(/-/g,'+')},+nsw/list-1` },
-               { name:"Domain",       url:(h,c)=>`https://www.domain.com.au/rent/${slug(h)}-nsw/` }],
-  "Melbourne":[{ name:"REA",          url:(h,c)=>`https://www.realestate.com.au/rent/in-${slug(h).replace(/-/g,'+')},+vic/list-1` },
-               { name:"Domain",       url:(h,c)=>`https://www.domain.com.au/rent/${slug(h)}-vic/` }],
-  "Bangkok":  [{ name:"DDProperty",   url:(h,c)=>`https://www.ddproperty.com/en/property-for-rent/?q=${enc(h)}` },
-               { name:"FazWaz",       url:(h,c)=>`https://www.fazwaz.com/property-for-rent/thailand/bangkok/${slug(h)}` }],
-  "Bali":     [{ name:"FazWaz",       url:(h,c)=>`https://www.fazwaz.com/property-for-rent/indonesia/bali/${slug(h)}` },
-               { name:"Dot Property", url:(h,c)=>`https://www.dotproperty.id/properties-for-rent/bali/${slug(h)}` }],
-  "Beijing":  [{ name:"Lianjia",      url:(h,c)=>`https://bj.lianjia.com/zufang/?q=${enc(h)}` },
-               { name:"Anjuke",       url:(h,c)=>`https://beijing.anjuke.com/rent/?kw=${enc(h)}` }],
-  "Shanghai": [{ name:"Lianjia",      url:(h,c)=>`https://sh.lianjia.com/zufang/?q=${enc(h)}` },
-               { name:"Anjuke",       url:(h,c)=>`https://shanghai.anjuke.com/rent/?kw=${enc(h)}` }],
-  "Cape Town":[{ name:"Property24",   url:(h,c)=>`https://www.property24.com/property-to-rent/cape-town/western-cape/9?q=${enc(h)}` },
-               { name:"Private Property",url:(h,c)=>`https://www.privateproperty.co.za/to-rent/western-cape/cape-town/${slug(h)}/` }],
-  "Marrakech":[{ name:"Mubawab",      url:(h,c)=>`https://www.mubawab.ma/fr/sc/marrakech:location-appartement?q=${enc(h)}` },
-               { name:"Avito.ma",     url:(h,c)=>`https://www.avito.ma/fr/marrakech/appartements/%C3%A0_louer?q=${enc(h)}` }],
-};
-
-// Track active vibes
-let activeVibes = [];
-let currentIntent = 'visit';
-// Track last shown neighbourhoods — passed as excludeHood to avoid repetition
-let lastShownHoods = [];
-// Prevent concurrent searches (double-clicks on "Search for an alternative match")
-let isSearching = false;
-// ── NOMINATIM SERIAL QUEUE ──────────────────────────────────────────────────
-// Nominatim rate limit: 1 req/sec. We must process sequentially, not with
-// setTimeout offsets — response times vary and can cause concurrent requests.
-const _nomQ = [];
-let _nomRunning = false;
-function queueNominatim(fn) {
-  _nomQ.push(fn);
-  if (!_nomRunning) _drainNomQ();
-}
-async function _drainNomQ() {
-  _nomRunning = true;
-  while (_nomQ.length > 0) {
-    const fn = _nomQ.shift();
-    try { await fn(); } catch(e) {}
-    await new Promise(r => setTimeout(r, 1600)); // guaranteed 1.6s gap
-  }
-  _nomRunning = false;
-}
-
-// Lightweight circle GeoJSON (no turf.js needed)
-function turf_circle(center, radiusKm, steps = 64) {
-  const [lng, lat] = center;
-  const coords = [];
-  for (let i = 0; i <= steps; i++) {
-    const angle = (i / steps) * 2 * Math.PI;
-    const dLat = (radiusKm / 111.32) * Math.cos(angle);
-    const dLng = (radiusKm / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle);
-    coords.push([lng + dLng, lat + dLat]);
-  }
-  return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } };
-}
-
-let mapInstances = {};
-
-function toggleVibe(el) {
-  el.classList.toggle('active');
-  const vibe = el.dataset.vibe;
-  if (el.classList.contains('active')) {
-    activeVibes.push(vibe);
-  } else {
-    activeVibes = activeVibes.filter(v => v !== vibe);
-  }
-}
-
-const VISIT_VIBES = [
-  {vibe: "Wine & Nightlife", emoji: "🍷"},
-  {vibe: "Shopping & Boutiques", emoji: "🛍️"},
-  {vibe: "Food & Restaurants", emoji: "🍽️"},
-  {vibe: "Parks & Outdoors", emoji: "🌿"},
-  {vibe: "Culture & Architecture", emoji: "🏛️"},
-  {vibe: "Music & Arts", emoji: "🎵"},
-  {vibe: "Cafés & Chill", emoji: "☕"},
-  {vibe: "Family Friendly", emoji: "👨‍👩‍👧"},
-  {vibe: "Digital Nomad", emoji: "💻"},
-];
-
-const LIVE_VIBES = [
-  {vibe: "Good Transport Links", emoji: "🚇"},
-  {vibe: "Parks & Green Spaces", emoji: "🌿"},
-  {vibe: "Family Friendly", emoji: "👨‍👩‍👧"},
-  {vibe: "Quiet & Residential", emoji: "🏡"},
-  {vibe: "Vibrant Local Scene", emoji: "🎭"},
-  {vibe: "Expat Community", emoji: "🌍"},
-  {vibe: "Budget Friendly", emoji: "💶"},
-  {vibe: "Digital Nomad", emoji: "💻"},
-  {vibe: "Cafés & Coworking", emoji: "☕"},
-];
-
-function setIntent(type) {
-  currentIntent = type;
-  document.querySelectorAll('.intent-card').forEach(c => c.classList.remove('active'));
-  document.getElementById('intent' + type.charAt(0).toUpperCase() + type.slice(1))?.classList.add('active');
-
-  const h2 = document.querySelector('.search-inner h2');
-  if (h2) h2.innerHTML = type === 'move'
-    ? 'Find where to <em>live</em>'
-    : 'Find your <em>match</em> now';
-
-  // Swap vibe pills
-  activeVibes = [];
-  const pills = document.getElementById('vibePills');
-  const vibes = type === 'move' ? LIVE_VIBES : VISIT_VIBES;
-  pills.innerHTML = vibes.map(v =>
-    `<span class="vibe-pill" onclick="toggleVibe(this)" data-vibe="${v.vibe}">${v.emoji} ${v.vibe}</span>`
-  ).join('');
-
-  const label = document.getElementById('vibeSelectorLabel');
-  if (label) label.textContent = type === 'move'
-    ? '✦ What matters most to you (optional)'
-    : '✦ Your vibe (optional — select all that apply)';
-}
-
-async function fetchUnsplashPhoto(query) {
-  try {
-    const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(query)}&orientation=landscape&client_id=${UNSPLASH_KEY}`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.urls?.regular || null;
-  } catch { return null; }
-}
-
-async function runMatch(isAlternative = false) {
-  if (isSearching) return; // prevent concurrent searches
-  isSearching = true;
-  const homeCity = document.getElementById('homeCity').value;
-  const homeHood = document.getElementById('homeHood').value.trim();
-  const destCity = document.getElementById('destCity').value;
-
-  if (!homeCity || !homeHood || !destCity) {
-    showError('Please fill in all three fields to find your match.');
-    return;
-  }
-  if (homeCity === destCity) {
-    showError("Your home city and destination are the same — pick a different destination!");
-    return;
-  }
-
-  const btn = document.getElementById('matchBtn');
-  const btnText = document.getElementById('btnText');
-  const loading = document.getElementById('loadingMsg');
-  const results = document.getElementById('resultsArea');
-  const errorEl = document.getElementById('errorMsg');
-
-  btn.disabled = true;
-  btnText.textContent = 'Matching…';
-  loading.classList.add('visible');
-  errorEl.classList.remove('visible');
-
-  // Disable + update all alternative match buttons so user gets feedback
-  document.querySelectorAll('.alt-search-btn').forEach(b => {
-    b.disabled = true;
-    b.textContent = 'Searching…';
-    b.style.opacity = '0.5';
-    b.style.cursor = 'not-allowed';
-  });
-
-  // For a fresh search, wipe old results and reset state
-  if (!isAlternative) {
-    results.classList.remove('visible');
-    results.innerHTML = '';
-    lastShownHoods = [];
-    mapInstances = {};
-  }
-
-  // Pass the last shown hood to avoid repetition
-  const excludeHoods = lastShownHoods.length > 0 ? [...lastShownHoods] : [];
-
-  try {
-    // STEP 1 — Fast call: Claude + Foursquare (~15s)
-    const result = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "https://api.matchmyhood.com/api/match");
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.timeout = 120000; // 2 minutes
-      xhr.onload = () => {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (data.matches) resolve({matches: data.matches, intent: data.intent});
-          else reject(new Error(data.error || "No matches returned"));
-        } catch {
-          reject(new Error("Could not parse response"));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.ontimeout = () => reject(new Error("Request timed out"));
-      xhr.send(JSON.stringify({ homeCity, homeHood, destCity, vibes: activeVibes, intent: currentIntent, excludeHoods }));
+const https = require("https");
+const express = require("express");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: "10mb" }));
+
+const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_KEY || "AIzaSyAvKFFCzz8O3-y_vRTdMdrbl16bHMgpXCA";
+const FSQ_API_KEY = process.env.FSQ_API_KEY || "1VQIVEWZI4JUKFUIEICXNVA50IIZ5O5ICONVJFCSD1CXNS1N";
+
+// ── CLAUDE API ──────────────────────────────────────────────────────────────
+function callClaude(prompt) {
+  return new Promise((resolve, reject) => {
+    const requestBody = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 6000,
+      messages: [{ role: "user", content: prompt }],
     });
 
-    const matches = result.matches;
+    const req = https.request({
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Length": Buffer.byteLength(requestBody),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        if (res.statusCode !== 200) {
+          reject(new Error("Claude API error: " + res.statusCode + " " + data));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.content[0].text.trim());
+        } catch (e) {
+          reject(new Error("Failed to parse Claude response"));
+        }
+      });
+      res.on("error", reject);
+    });
 
-    if (!matches || !Array.isArray(matches)) {
-      throw new Error('Could not parse match results. Please try again.');
+    req.on("error", reject);
+    req.write(requestBody);
+    req.end();
+  });
+}
+
+// ── GOOGLE PLACES API ────────────────────────────────────────────────────────
+// Search for top venues by type — used for top 3 recommendations
+// Valid primary types per category — used to filter out misclassified venues
+const VALID_RESTAURANT_TYPES = new Set(['restaurant','meal_takeaway','meal_delivery','food','cafe','bakery','bar','pub']);
+const VALID_BAR_TYPES        = new Set(['bar','pub','night_club','wine_bar','liquor_store','restaurant','cafe']);
+const VALID_CAFE_TYPES        = new Set(['cafe','coffee_shop','bakery','breakfast_restaurant']);
+
+function searchGoogle(lat, lng, types, limit = 3) {
+  // Fetch 10 candidates, sort by rating descending, filter by primaryType, return top 'limit'
+  return new Promise((resolve) => {
+    const body = JSON.stringify({
+      includedTypes: types,
+      maxResultCount: 10,
+      locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: 800 } },
+      rankPreference: "POPULARITY"
+    });
+    const req = https.request({
+      hostname: "places.googleapis.com",
+      path: "/v1/places:searchNearby",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress,places.photos,places.currentOpeningHours,places.websiteUri,places.primaryType,places.location",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          let places = JSON.parse(data).places || [];
+          // Filter by primaryType to drop misclassified venues
+          const validTypes = types.some(t => ["bar","wine_bar"].includes(t)) ? VALID_BAR_TYPES : VALID_RESTAURANT_TYPES;
+          const typed = places.filter(p => !p.primaryType || validTypes.has(p.primaryType));
+          // If filter is too aggressive (fewer results than limit), fall back to all places
+          const filtered = typed.length >= limit ? typed : places;
+          // Sort by rating descending, unrated venues go last
+          filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+          resolve(filtered.slice(0, limit));
+        }
+        catch { resolve([]); }
+      });
+      res.on("error", () => resolve([]));
+    });
+    req.on("error", () => resolve([]));
+    req.write(body);
+    req.end();
+  });
+}
+
+// Count venues via Google Places — used for amenity tile counts
+function countGoogle(lat, lng, types, radius = 600) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({
+      includedTypes: types,
+      maxResultCount: 20,
+      locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: radius } }
+    });
+    const req = https.request({
+      hostname: "places.googleapis.com",
+      path: "/v1/places:searchNearby",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
+        "X-Goog-FieldMask": "places.id",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const count = (JSON.parse(data).places || []).length;
+          // Google caps at 20 — return "20+" string when capped so UI shows there are more
+          resolve(count >= 20 ? "20+" : count);
+        }
+        catch { resolve(0); }
+      });
+      res.on("error", () => resolve(0));
+    });
+    req.on("error", () => resolve(0));
+    req.write(body);
+    req.end();
+  });
+}
+
+// ── FOURSQUARE API — venue counts for hybrid best-of-both approach ───────────
+// Returns count of venues matching category near lat/lng
+// Uses Foursquare Places API v3 with category IDs
+function countFoursquare(lat, lng, categoryIds, radius = 700) {
+  return new Promise((resolve) => {
+    if (!FSQ_API_KEY) return resolve(0);
+    const params = `ll=${lat},${lng}&categories=${categoryIds}&radius=${radius}&limit=50&fields=fsq_id`;
+    const req = https.request({
+      hostname: 'api.foursquare.com',
+      path: `/v3/places/search?${params}`,
+      method: 'GET',
+      headers: {
+        'Authorization': FSQ_API_KEY,
+        'Accept': 'application/json',
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const count = (parsed.results || []).length;
+          resolve(count);
+        } catch { resolve(0); }
+      });
+      res.on('error', () => resolve(0));
+    });
+    req.on('error', () => resolve(0));
+    req.end();
+  });
+}
+
+// Foursquare category IDs for our amenity types
+// See: https://docs.foursquare.com/data-products/docs/categories
+const FSQ_CATEGORIES = {
+  restaurants:  '13065',        // Dining and Drinking > Restaurant
+  bars:         '13003,13059',  // Bar + Pub
+  cafes:        '13035',        // Coffee Shop
+  gyms:         '18021',        // Gym / Fitness Center
+  supermarkets: '17069,17070',  // Grocery Store + Supermarket
+  pharmacies:   '15014',        // Pharmacy
+};
+
+// ── OVERPASS API — single batched query per neighbourhood ──────────────────
+// Fetches ALL amenity types + transit in ONE request to avoid rate limiting
+let _lastOverpassCall = 0;
+
+function fetchAllAmenities(lat, lng, city, polygon) {
+  const tags = CITY_TAGS[city] || DEFAULT_TAGS;
+
+  // Build Overpass area filter — use polygon if available, else radius
+  // Overpass poly: format is "lat1 lon1 lat2 lon2 ..." (space-separated, flat)
+  let areaFilter;
+  if (polygon) {
+    try {
+      let coords = polygon.type === 'Polygon'
+        ? polygon.coordinates[0]
+        : polygon.coordinates[0][0]; // first ring of MultiPolygon
+      // Overpass poly: needs lat lon pairs (note: GeoJSON is lon,lat so we swap)
+      const polyStr = coords.map(c => `${c[1]} ${c[0]}`).join(' ');
+      areaFilter = (tag) => `(poly:"${polyStr}")`;
+    } catch(e) {
+      console.error('Polygon parse error, falling back to radius:', e.message);
+      areaFilter = (radius) => `(around:${radius},${lat},${lng})`;
+    }
+  } else {
+    areaFilter = (radius) => `(around:${radius},${lat},${lng})`;
+  }
+
+  return new Promise(async (resolve) => {
+    const empty = { pharmacies: 0, supermarkets: 0, parks: 0, gyms: 0, intlSchools: 0, museums: 0, restaurants: 0, bars: 0, nearestMetro: [] };
+
+    // Build union of all nwr (node/way/relation) queries
+    const parts = [
+      `nwr["amenity"="pharmacy"]${areaFilter(700)};`,
+      `nwr["amenity"="restaurant"]${areaFilter(600)};`,
+      `nwr["amenity"="cafe"]${areaFilter(600)};`,
+      `nwr["amenity"="bar"]${areaFilter(600)};`,
+      `nwr["amenity"="pub"]${areaFilter(600)};`,
+      `nwr["amenity"="wine_bar"]${areaFilter(600)};`,
+    ];
+    for (const [k, v] of (tags.supermarkets || []))
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(700)};`);
+    for (const [k, v] of (tags.gyms || []))
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(700)};`);
+    for (const [k, v] of (tags.parks || []))
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(900)};`);
+    for (const [k, v] of (tags.schools || []))
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(2000)};`);
+    for (const [k, v] of (tags.museums || []))
+      parts.push(`nwr["${k}"="${v}"]${areaFilter(1500)};`);
+    // Transit — always use radius (stations can be just outside hood boundary)
+    parts.push(
+      `nwr["railway"="station"](around:800,${lat},${lng});`,
+      `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
+      `node["railway"="tram_stop"](around:800,${lat},${lng});`,
+      `node["railway"="halt"](around:800,${lat},${lng});`,
+      `nwr["station"="subway"](around:800,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["tram"="yes"](around:800,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`,
+      `node["highway"="bus_stop"](around:400,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["bus"="yes"](around:400,${lat},${lng});`,
+      // Entertainment & culture
+      `nwr["amenity"="cinema"]${areaFilter(1000)};`,
+      `nwr["amenity"="theatre"]${areaFilter(1000)};`,
+      `nwr["amenity"="music_venue"]${areaFilter(1000)};`,
+      `nwr["amenity"="nightclub"]${areaFilter(800)};`,
+      `nwr["amenity"="marketplace"]${areaFilter(1000)};`,
+      `nwr["shop"="market"]${areaFilter(1000)};`,
+      // Hospitals (LIVE mode)
+      `nwr["amenity"="hospital"]${areaFilter(1500)};`,
+      `nwr["amenity"="clinic"]${areaFilter(1000)};`
+    );
+
+    const query = `[out:json][timeout:45];\n(\n${parts.join('\n')}\n);\nout center tags;`;
+    const body = `data=${encodeURIComponent(query)}`;
+
+    // Throttle: enforce 35s gap between Overpass calls (rate limit window)
+    const gap = Math.max(0, (_lastOverpassCall + 35000) - Date.now());
+    if (gap > 0) console.log(`Overpass throttle: waiting ${Math.round(gap/1000)}s`);
+    await new Promise(r => setTimeout(r, gap));
+    _lastOverpassCall = Date.now();
+
+    // Mirror cascade — try each in order until one returns valid JSON
+    // z./lz4. are separate server pools from main overpass-api.de
+    const MIRRORS = [
+      "overpass-api.de",
+      "z.overpass-api.de",
+      "lz4.overpass-api.de",
+      "overpass.kumi.systems",
+    ];
+
+    async function tryMirror(hostname) {
+      return new Promise((res, rej) => {
+        const r = https.request({
+          hostname, path: "/api/interpreter", method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+        }, (response) => {
+          let d = "";
+          response.on("data", chunk => d += chunk);
+          response.on("end", () => {
+            if (d.trimStart().startsWith("<")) rej(new Error(`${hostname} rate-limited`));
+            else res(d);
+          });
+          response.on("error", rej);
+        });
+        r.on("error", rej);
+        r.write(body);
+        r.end();
+      });
     }
 
-    // Track the returned hood to exclude next time
-    if (matches[0]?.name) lastShownHoods.push(matches[0].name);
+    let rawData = null;
+    for (const mirror of MIRRORS) {
+      try {
+        rawData = await tryMirror(mirror);
+        console.log(`Overpass ${mirror} OK — ${JSON.parse(rawData).elements?.length ?? 0} elements`);
+        break;
+      } catch(e) {
+        console.error(`Overpass ${mirror} failed: ${e.message}`);
+        if (mirror !== MIRRORS[MIRRORS.length - 1]) {
+          await new Promise(r => setTimeout(r, 2000)); // 2s between mirror attempts
+        }
+      }
+    }
 
-    // Capture current card count BEFORE rendering so amenity fetch targets correct DOM IDs
-    const domOffset = document.getElementById('resultsArea').querySelectorAll('.result-card-wrap').length;
+    if (!rawData) {
+      console.error("All Overpass mirrors failed — returning empty");
+      resolve(empty);
+      return;
+    }
 
-    // Show results — append if alternative, replace if fresh
-    await renderResults(matches, homeHood, homeCity, destCity, isAlternative);
-
-    // STEP 2 — Background call: Overpass amenities + transit (~30s, silent)
-    {
-      const callId = `amenity-loading-${Date.now()}`;
-      const amenityNote = document.createElement('div');
-      amenityNote.id = callId;
-      amenityNote.style.cssText = 'text-align:center;font-size:12px;color:rgba(248,241,231,0.4);padding:8px;';
-      amenityNote.textContent = '⏳ Loading local data…';
-      document.getElementById('resultsArea').prepend(amenityNote);
-
-      const amenityDomOffset = domOffset;
-
-      // Fetch Nominatim polygons for each match — used to scope amenity pins to real hood shape
-      const polygons = await Promise.all(matches.map(async m => {
-        try {
-          // Strip parentheticals e.g. "Neukölln (Reuterkiez)" → "Neukölln"
-          const cleanName = m.name.replace(/\s*\(.*?\)/g, '').trim();
-          const q = encodeURIComponent(cleanName + ', ' + m.city);
-          const r = await fetch(`https://api.matchmyhood.com/api/nominatim?q=${q}`);
-          const data = await r.json();
-          const feature = data.features?.[0];
-          const isPolygon = feature?.geometry?.type === 'Polygon' || feature?.geometry?.type === 'MultiPolygon';
-          return isPolygon ? feature.geometry : null;
-        } catch { return null; }
-      }));
-
-      // Attach polygon to each match before sending to amenities endpoint
-      const matchesWithPolygons = matches.map((m, idx) => ({
-        ...m, _polygon: polygons[idx] || null
-      }));
-
-      fetch('https://api.matchmyhood.com/api/amenities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matches: matchesWithPolygons, destCity, intent: currentIntent })
-      })
-      .then(r => r.json())
-      .then(data => {
-        document.getElementById(callId)?.remove();
-        if (!data.matches) return;
-        data.matches.forEach((m, idx) => {
-          const i = idx + amenityDomOffset;
-
-          // Always update stations count + names (even if 0 / empty)
-          const metroArr = m.nearestMetro || [];
-          const busArr   = m.nearestBus || [];
-          const busOnly  = m.busOnly || false;
-          const busCount = m.busCount || busArr.length;
-          const stationsEl = document.getElementById(`amenity-${i}-stations`);
-          if (stationsEl) stationsEl.textContent = busOnly ? busCount : (m.amenities?.stations ?? metroArr.length);
-
-          // Update station tile icon + label for bus-only
-          if (busOnly) {
-            const tileEl = stationsEl?.closest('div[style*="text-align:center"]');
-            if (tileEl) {
-              const iconEl = tileEl.querySelector('div:first-child');
-              const labelEl = tileEl.querySelector('div:last-child');
-              if (iconEl) iconEl.textContent = '🚌';
-              if (labelEl) labelEl.textContent = 'Bus stops';
-            }
-          }
-
-          const stationNamesWrap = document.getElementById(`station-names-${i}`);
-          if (stationNamesWrap) {
-            if (busOnly && busArr.length) {
-              stationNamesWrap.innerHTML = `<div>🚌 ${busArr.join(' · ')}</div><div style="font-size:10px;color:rgba(248,241,231,0.3);margin-top:4px;">No metro/train/tram within 800m</div>`;
-              stationNamesWrap.style.display = 'block';
-            } else if (metroArr.length) {
-              stationNamesWrap.innerHTML = `<div>🚇 ${metroArr.join(' · ')}</div>`;
-              stationNamesWrap.style.display = 'block';
-            } else {
-              stationNamesWrap.style.display = 'none';
-            }
-          }
-
-          // Legacy transit-wrap (LIVE mode transit section above map)
-          if (metroArr.length) {
-            const transitEl = document.getElementById(`transit-${i}`);
-            if (transitEl) transitEl.textContent = metroArr.join(' · ');
-            const transitWrap = document.getElementById(`transit-wrap-${i}`);
-            if (transitWrap) transitWrap.style.display = 'block';
-          }
-
-          // Update all tiles — both modes, always
-          ['pharmacies','supermarkets','parks','gyms','intlSchools','museums','restaurants','cafes','bars','musicVenues','cinemas','theatres','markets','hospitals'].forEach(key => {
-            const el = document.getElementById(`amenity-${i}-${key}`);
-            if (el) el.textContent = m.amenities?.[key] ?? '0';
-          });
-
-          // Populate map sources from server coords
-          const fillMapSource = (sourceId, coords, label, pillId) => {
-            const map = mapInstances[i];
-            if (!map || !coords?.length) return;
-            const feats = coords.map(c => ({ type:'Feature', geometry:{ type:'Point', coordinates:[c.lon,c.lat] }, properties:{ name:c.name||label, city: m.city||destCity, hood: m.name, pinType: sourceId } }));
-            const geojson = { type:'FeatureCollection', features:feats };
-            map._sourceData[sourceId] = geojson; // store for 3D revert restore
-            const go = () => {
-              const src = map.getSource(sourceId);
-              if (src) {
-                src.setData(geojson);
-                if (pillId) { const pill = document.getElementById(pillId); if(pill) pill.textContent = pill.textContent.replace(' ⏳',''); }
-              } else setTimeout(go, 500);
-            };
-            go();
-          };
-          // ── TRANSPORT MAP SOURCES ─────────────────────────────────────────────
-          // Scenario C (busOnly): load bus stop coords labeled as Bus Stop
-          // Scenarios A/B (metro exists): load heavy transit coords labeled as Station
-          //   — lines will draw themselves; pins are fallback if stops outside polygon
-          if (m.busOnly) {
-            fillMapSource('transport', m.busCoords || m.transitCoords, 'Bus Stop', `pill-transport-${i}`);
-            // Label pill as bus stops immediately
-            const busPill = document.getElementById(`pill-transport-${i}`);
-            if (busPill) busPill.innerHTML = '🚌 Bus Stops';
-          } else {
-            // Load heavy transit pins as fallback (will be shown only if lines fail or stops outside polygon)
-            fillMapSource('transport', m.heavyTransitCoords || m.transitCoords, 'Station', `pill-transport-${i}`);
-          }
-
-          fillMapSource('restaurants',  m.restaurantCoords,  'Restaurant',  null);
-          fillMapSource('bars',         m.barCoords,         'Bar',         null);
-
-          // ── INJECT TOP 3 ENRICHED PINS — overlay Google Places data on the map ──
-          // These have photoUrl, rating, website, openStatus from Google Places
-          // They replace or supplement the OSM pins for the most prominent venues
-          const injectEnrichedPins = (sourceId, venues, pinType) => {
-            const map = mapInstances[i];
-            if (!map || !venues?.length) return;
-            const validVenues = venues.filter(v => v.lat && v.lng);
-            if (!validVenues.length) return;
-            const src = map.getSource(sourceId);
-            if (!src) return;
-            const existing = map._sourceData[sourceId] || { type:'FeatureCollection', features:[] };
-            const enriched = validVenues.map(v => ({
-              type: 'Feature',
-              geometry: { type:'Point', coordinates:[v.lng, v.lat] },
-              properties: {
-                name: v.name, city: m.city||destCity, hood: m.name, pinType: sourceId,
-                photoUrl: v.photoUrl||'', website: v.website||'', openStatus: v.openStatus||'',
-                description: v.description||'', isEnriched: true
-              }
-            }));
-            // Merge: enriched pins first, then OSM (dedup by rough proximity not needed — different sources)
-            const merged = { type:'FeatureCollection', features: [...enriched, ...existing.features] };
-            map._sourceData[sourceId] = merged;
-            src.setData(merged);
-          };
-          injectEnrichedPins('restaurants', m.top3Restaurants, 'restaurants');
-          injectEnrichedPins('bars', m.top3Bars, 'bars');
-
-          // Populate dedicated top picks source — gold pins for top 3 restaurants + bars
-          const mapTP = mapInstances[i];
-          if (mapTP) {
-            const topFeats = [
-              ...(m.top3Restaurants||[]).filter(v => v.lat && v.lng).map(v => ({
-                type:'Feature', geometry:{type:'Point',coordinates:[v.lng,v.lat]},
-                properties:{ name:v.name, city:m.city||destCity, hood:m.name, pinType:'toppicks',
-                  photoUrl:v.photoUrl||'', website:v.website||'', openStatus:v.openStatus||'',
-                  description:v.description||'', isEnriched:true, category:'Restaurant' }
-              })),
-              ...(m.top3Bars||[]).filter(v => v.lat && v.lng).map(v => ({
-                type:'Feature', geometry:{type:'Point',coordinates:[v.lng,v.lat]},
-                properties:{ name:v.name, city:m.city||destCity, hood:m.name, pinType:'toppicks',
-                  photoUrl:v.photoUrl||'', website:v.website||'', openStatus:v.openStatus||'',
-                  description:v.description||'', isEnriched:true, category:'Bar & Drinks' }
-              }))
-            ];
-            if (topFeats.length) {
-              const tpGeojson = { type:'FeatureCollection', features:topFeats };
-              mapTP._sourceData['toppicks'] = tpGeojson;
-              const goTP = () => { const src = mapTP.getSource('toppicks'); if(src) src.setData(tpGeojson); else setTimeout(goTP, 500); };
-              goTP();
-            }
-          }
-          fillMapSource('supermarkets', m.supermarketCoords, 'Supermarket', null);
-          fillMapSource('gyms',         m.gymCoords,         'Gym',         null);
-          fillMapSource('museums',      m.museumCoords,      'Attraction',  null);
-          fillMapSource('coffee',       m.cafeCoords,        'Café',        null);
-
-          // ── TRANSIT LINES ──────────────────────────────────────────────────────
-          // Scenario A: lines exist, stops inside polygon → draw lines, hide pill
-          // Scenario B: lines exist, stops outside polygon → draw lines, show heavy pins pill as fallback
-          // Scenario C (busOnly): no lines expected → bus stop pins already loaded above
-          if (!m.busOnly) {
-            fetch('https://api.matchmyhood.com/api/transitlines', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ lat: m.lat, lng: m.lng })
-            })
-            .then(r => r.json())
-            .then(data => {
-              const map = mapInstances[i];
-              if (!map) return;
-              const transportPill = document.getElementById(`pill-transport-${i}`);
-
-              if (!data.lines?.length) {
-                // No transit lines returned — show heavy transit pins if available
-                if (transportPill) transportPill.innerHTML = '🚇 Stations';
-                return;
-              }
-
-              // Lines exist — draw them
-              map._transitLines = data.lines;
-              drawTransitLines(map, data.lines, i);
-
-              // Count stops inside the neighbourhood polygon
-              const hoodLat = m.lat, hoodLng = m.lng;
-              const boundary = map._boundaryData;
-              const nearbyStops = new Set();
-
-              const ptInPolygon = (lng, lat, geojson) => {
-                try {
-                  const rings = geojson.type === 'Feature'
-                    ? (geojson.geometry.type === 'Polygon' ? [geojson.geometry.coordinates[0]] : geojson.geometry.coordinates.map(p => p[0]))
-                    : geojson.type === 'Polygon' ? [geojson.coordinates[0]] : geojson.coordinates.map(p => p[0]);
-                  for (const ring of rings) {
-                    let inside = false;
-                    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-                      const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
-                      if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
-                    }
-                    if (inside) return true;
-                  }
-                } catch(e) {}
-                return false;
-              };
-
-              data.lines.forEach(line => {
-                (line.stops || []).forEach(c => {
-                  const lng = c[0], lat = c[1];
-                  const inArea = boundary
-                    ? ptInPolygon(lng, lat, boundary)
-                    : (Math.sqrt((lat-hoodLat)**2 + (lng-hoodLng)**2) * 111) <= 1.5;
-                  if (inArea) nearbyStops.add(`${Math.round(lat*1000)},${Math.round(lng*1000)}`);
-                });
-              });
-
-              if (nearbyStops.size > 0) {
-                // Scenario A: stops inside polygon — update tile count, hide pill (lines show everything)
-                const stationsEl = document.getElementById(`amenity-${i}-stations`);
-                if (stationsEl) stationsEl.textContent = nearbyStops.size;
-                if (transportPill) transportPill.style.display = 'none';
-              } else {
-                // Scenario B: lines pass through but stops outside polygon —
-                // keep heavy transit pins visible so user can toggle them
-                if (transportPill) {
-                  transportPill.style.display = '';
-                  transportPill.innerHTML = '🚇 Stations';
-                }
-              }
-            })
-            .catch(e => console.error('Transit lines error:', e));
-          }
-
-          // ── LANDMARKS FETCH ────────────────────────────────────────────────
-          // Fire after amenities — Claude generates top 8 city must-dos with
-          // transport from the matched neighbourhood
-          fetch('https://api.matchmyhood.com/api/landmarks', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ city: destCity, neighbourhood: m.name, lat: m.lat, lng: m.lng, vibes: activeVibes })
-          })
-          .then(r => r.json())
-          .then(data => {
-            const list = document.getElementById(`landmarks-list-${i}`);
-            if (!list || !data.landmarks?.length) return;
-
-            const transportIcon = t => ({ walk: '🚶', metro: '🚇', bus: '🚌', tram: '🚊', train: '🚆', taxi: '🚕' })[t] || '🗺️';
-
-            list.innerHTML = data.landmarks.map((l, idx) => {
-              const gygUrl = `https://www.getyourguide.com/s/?q=${encodeURIComponent(l.name + ' ' + destCity)}&partner_id=${GYG_AFF}`;
-              const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(l.name + ' ' + destCity)}`;
-              return `
-              <div style="display:flex;gap:12px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);${idx === data.landmarks.length - 1 ? 'border-bottom:none;' : ''}">
-                <div style="flex-shrink:0;width:24px;height:24px;background:rgba(201,164,85,0.15);border:1px solid rgba(201,164,85,0.3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--gold);margin-top:1px;">${idx + 1}</div>
-                <div style="flex:1;min-width:0;">
-                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:3px;">
-                    <a href="${mapsUrl}" target="_blank" style="font-size:14px;font-weight:700;color:var(--cream);text-decoration:none;line-height:1.3;" onmouseover="this.style.color='var(--terracotta-light)'" onmouseout="this.style.color='var(--cream)'">${l.name}</a>
-                    ${l.bookInAdvance ? '<span style="flex-shrink:0;font-size:9px;background:rgba(196,98,45,0.25);color:var(--terracotta-light);padding:2px 7px;border-radius:100px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">Book ahead</span>' : ''}
-                  </div>
-                  <div style="font-size:12px;color:rgba(248,241,231,0.55);margin-bottom:5px;line-height:1.4;">${l.why}</div>
-                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
-                    <span style="font-size:11px;color:rgba(248,241,231,0.35);">${l.distanceKm} km away</span>
-                    <span style="font-size:11px;color:rgba(248,241,231,0.5);display:flex;align-items:center;gap:4px;">${transportIcon(l.transport)} ${l.minutes} min${l.transportLine ? ' · <span style="color:rgba(248,241,231,0.35);">' + l.transportLine + '</span>' : ''}</span>
-                  </div>
-                  ${l.tip ? `<div style="margin-bottom:6px;font-size:11px;color:rgba(201,164,85,0.7);font-style:italic;">💡 ${l.tip}</div>` : ''}
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <a href="${gygUrl}" target="_blank" class="pick-link">🎫 Book experience →</a>
-                    <a href="${mapsUrl}" target="_blank" class="pick-link">📍 Directions →</a>
-                  </div>
-                </div>
-              </div>`;
-            }).join('');
-          })
-          .catch(e => console.error('Landmarks error:', e));
-        });
-      })
-      .catch(err => {
-        console.error('Amenities error:', err);
-        document.getElementById(callId)?.remove();
+    function processOverpass(data) {
+      const parsed = JSON.parse(data);
+      if (parsed.remark) console.error("Overpass remark:", parsed.remark);
+      const allEls = parsed.elements || [];
+      if (allEls.length === 0) console.error("Overpass returned 0 elements. Response start:", data.slice(0, 200));
+      const seen = new Set();
+      const els = allEls.filter(e => {
+        const key = `${e.type}:${e.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
       });
+
+      const pharmacies  = els.filter(e => e.tags?.amenity === "pharmacy").length;
+      const restaurants = els.filter(e => e.tags?.amenity === "restaurant").length;
+      const cafes       = els.filter(e => e.tags?.amenity === "cafe").length;
+      const bars        = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).length;
+
+      const count = (tagPairs) => els.filter(e =>
+        tagPairs.some(([k, v]) => e.tags?.[k] === v)
+      ).length;
+
+      const supermarkets = count(tags.supermarkets || []);
+      const gyms         = count(tags.gyms || []);
+      const parks        = els.filter(e => (tags.parks||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
+      const intlSchools  = els.filter(e => {
+        if (!(tags.schools||[]).some(([k,v]) => e.tags?.[k]===v)) return false;
+        const n = (e.tags?.name || '').toLowerCase();
+        return n.includes('international') || n.includes('british') ||
+               n.includes('american') || n.includes('french') ||
+               n.includes('german') || n.includes('lycée') ||
+               n.includes('deutsch') || n.includes('escola inter');
+      }).length;
+      const museums      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).length;
+
+      const cinemas      = els.filter(e => e.tags?.amenity === "cinema").length;
+      const theatres     = els.filter(e => e.tags?.amenity === "theatre").length;
+      const musicVenues  = els.filter(e => e.tags?.amenity === "music_venue" || e.tags?.amenity === "nightclub").length;
+      const markets      = els.filter(e => e.tags?.amenity === "marketplace" || e.tags?.shop === "market").length;
+      const hospitals    = els.filter(e => e.tags?.amenity === "hospital" || e.tags?.amenity === "clinic").length;
+
+      const HEAVY_TRANSIT_MATCHERS = [
+        e => e.tags?.railway === "station",
+        e => e.tags?.railway === "subway_entrance",
+        e => e.tags?.railway === "tram_stop",
+        e => e.tags?.railway === "halt",
+        e => e.tags?.station === "subway",
+        e => e.tags?.public_transport === "stop_position" && (e.tags?.tram === "yes" || e.tags?.subway === "yes"),
+      ];
+      const BUS_MATCHERS = [
+        e => e.tags?.highway === "bus_stop",
+        e => e.tags?.public_transport === "stop_position" && e.tags?.bus === "yes",
+      ];
+      const ALL_TRANSIT_MATCHERS = [...HEAVY_TRANSIT_MATCHERS, ...BUS_MATCHERS];
+
+      const nearestMetro = els
+        .filter(e => HEAVY_TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+        .map(e => e.tags.name)
+        .filter((v, i, a) => a.indexOf(v) === i);
+
+      const stationCount = nearestMetro.length; // total unique stations — used for amenity tile
+
+      const busNamesAll = els
+        .filter(e => BUS_MATCHERS.some(fn => fn(e)) && e.tags?.name)
+        .map(e => e.tags.name)
+        .filter((v, i, a) => a.indexOf(v) === i);
+      const nearestBus = busNamesAll.slice(0, 4); // names shown in UI
+      const busCount   = busNamesAll.length;       // actual count for tile
+
+      // busOnly = bus stops found but no heavy transit within 800m
+      const busOnly = nearestMetro.length === 0 && nearestBus.length > 0;
+
+      const coord = e => ({ lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, name: e.tags?.name || '' });
+      const hasLL = c => c.lat && c.lon;
+      const transitCoords     = els.filter(e => ALL_TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+        .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+      // Heavy transit only (metro/tram/train) — no bus stops — for map pins when not busOnly
+      const heavyTransitCoords = els.filter(e => HEAVY_TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+        .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+      // Bus stops only — for map pins when busOnly
+      const busCoords = els.filter(e => BUS_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+        .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,15);
+      const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+      const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
+      const museumCoords      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).map(coord).filter(hasLL).slice(0,15);
+      const cafeCoords        = els.filter(e => e.tags?.amenity === "cafe").map(coord).filter(hasLL).slice(0,20);
+      const restaurantCoords  = els.filter(e => e.tags?.amenity === "restaurant").map(coord).filter(hasLL).slice(0,40);
+      const barCoords         = els.filter(e => ["bar","pub","wine_bar"].includes(e.tags?.amenity)).map(coord).filter(hasLL).slice(0,30);
+
+      // Hybrid counts — run Yelp in parallel, take best of OSM vs Yelp
+      Promise.all([
+        countFoursquare(lat, lng, FSQ_CATEGORIES.restaurants, 600),
+        countFoursquare(lat, lng, FSQ_CATEGORIES.bars, 600),
+        countFoursquare(lat, lng, FSQ_CATEGORIES.cafes, 600),
+        countFoursquare(lat, lng, FSQ_CATEGORIES.gyms, 700),
+        countFoursquare(lat, lng, FSQ_CATEGORIES.supermarkets, 700),
+        countFoursquare(lat, lng, FSQ_CATEGORIES.pharmacies, 700),
+      ]).then(([yRestaurants, yBars, yCafes, yGyms, ySupermarkets, yPharmacies]) => {
+        const best = (osm, yelp) => Math.max(Number(osm) || 0, Number(yelp) || 0);
+        resolve({
+          pharmacies:   best(pharmacies, yPharmacies),
+          supermarkets: best(supermarkets, ySupermarkets),
+          parks, gyms: best(gyms, yGyms), intlSchools, museums,
+          cinemas, theatres, musicVenues, markets, hospitals,
+          restaurants:  best(restaurants, yRestaurants),
+          cafes:        best(cafes, yCafes),
+          bars:         best(bars, yBars),
+          nearestMetro: nearestMetro.slice(0, 4), stationCount,
+          nearestBus, busCount, busOnly,
+          transitCoords, heavyTransitCoords, busCoords,
+          supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords
+        });
+      }).catch(() => {
+        // Foursquare failed — fall back to pure OSM counts
+        resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums,
+                  cinemas, theatres, musicVenues, markets, hospitals,
+                  restaurants, cafes, bars,
+                  nearestMetro: nearestMetro.slice(0, 4), stationCount,
+                  nearestBus, busCount, busOnly,
+                  transitCoords, heavyTransitCoords, busCoords,
+                  supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
+      });
+    }
+
+    try { processOverpass(rawData); }
+    catch(e) { console.error("Overpass parse error:", e.message, rawData?.slice(0,120)); resolve(empty); }
+  });
+}
+
+// Format Foursquare venue
+function formatVenue(venue, city, hoodName) {
+  const name = venue.displayName?.text || "Unknown";
+  const address = venue.shortFormattedAddress || "";
+  const rating = venue.rating ? `${venue.rating.toFixed(1)}★` : "";
+  const priceMap = { PRICE_LEVEL_INEXPENSIVE: "€", PRICE_LEVEL_MODERATE: "€€", PRICE_LEVEL_EXPENSIVE: "€€€", PRICE_LEVEL_VERY_EXPENSIVE: "€€€€" };
+  const price = priceMap[venue.priceLevel] || "";
+  const parts = [address || hoodName, rating, price].filter(Boolean);
+  const description = parts.join(' · ') || `In ${hoodName}`;
+  const photoRef = venue.photos?.[0]?.name || null;
+  const photoUrl = photoRef
+    ? `https://places.googleapis.com/v1/${photoRef}/media?maxHeightPx=200&maxWidthPx=300&key=${GOOGLE_PLACES_KEY}`
+    : null;
+  const isOpen = venue.currentOpeningHours?.openNow;
+  const openStatus = isOpen === true ? 'Open now' : isOpen === false ? 'Closed' : null;
+  const website = venue.websiteUri || null;
+  const primaryType = venue.primaryType || null;
+  const lat = venue.location?.latitude || null;
+  const lng = venue.location?.longitude || null;
+  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}`, photoUrl, openStatus, website, primaryType, lat, lng };
+}
+
+// Fast enrichment — Google Places venues only, no slow Overpass calls
+async function enrichMatchFast(match, destCity) {
+  if (!match.lat || !match.lng) return match;
+  try {
+    const [restaurants, bars, cafes] = await Promise.all([
+      searchGoogle(match.lat, match.lng, ["restaurant"], 3),
+      searchGoogle(match.lat, match.lng, ["bar", "wine_bar", "pub"], 3),
+      searchGoogle(match.lat, match.lng, ["cafe"], 3),
+    ]);
+    match.top3Restaurants = restaurants.length > 0 ? restaurants.map(v => formatVenue(v, destCity, match.name)) : [];
+    match.top3Bars = bars.length > 0 ? bars.map(v => formatVenue(v, destCity, match.name)) : [];
+    match.top3Cafes = cafes.length > 0 ? cafes.map(v => formatVenue(v, destCity, match.name)) : [];
+    console.log(`Google enrichment for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars, ${cafes.length} cafes`);
+  } catch (err) {
+    console.error("Fast enrichment error for", match.name, err.message);
+    match.top3Restaurants = match.top3Restaurants || [];
+    match.top3Bars = match.top3Bars || [];
+    match.top3Cafes = match.top3Cafes || [];
+  }
+  return match;
+}
+
+// ── OSM TAG MAPPING BY CITY ─────────────────────────────────────────────────
+const CITY_TAGS = {
+  // Portugal
+  "Lisbon": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Porto":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // UK
+  "London": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // France
+  "Paris":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","subway_entrance"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Spain
+  "Barcelona": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Madrid":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Seville":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Netherlands
+  "Amsterdam": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Italy
+  "Rome":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Florence": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["railway","halt"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Milan":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["railway","subway_entrance"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Germany
+  "Berlin":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Munich":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Frankfurt":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Düsseldorf":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Other Europe
+  "Vienna":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Copenhagen":{ supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Stockholm": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Prague":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Budapest":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Brussels":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Istanbul":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Americas
+  "New York":      { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Los Angeles":   { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "San Francisco": { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Chicago":       { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Miami":         { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Boston":        { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Washington DC": { supermarkets: [["shop","supermarket"],["shop","convenience"],["shop","grocery"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Toronto":       { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Montreal":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Mexico City":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "São Paulo":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Rio de Janeiro":{ supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Buenos Aires":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","plaza"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Asia Pacific
+  "Tokyo":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Seoul":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Singapore": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Dubai":     { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Sydney":    { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Melbourne": { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","common"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Bangkok":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Beijing":   { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Shanghai":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["station","subway"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Bali":      { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["amenity","bus_station"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  // Africa & Middle East
+  "Cape Town":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["public_transport","stop_position"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["leisure","sports_centre"]], parks: [["leisure","park"],["leisure","nature_reserve"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+  "Marrakech":  { supermarkets: [["shop","supermarket"],["shop","convenience"]], transit: [["railway","station"],["amenity","bus_station"]], schools: [["amenity","school"],["amenity","college"]], gyms: [["leisure","fitness_centre"],["amenity","gym"]], parks: [["leisure","park"],["leisure","garden"]], museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]]},
+};
+
+// Default fallback tags for cities not in mapping
+const DEFAULT_TAGS = {
+  supermarkets: [["shop","supermarket"],["shop","convenience"]],
+  transit: [["railway","station"],["railway","subway_entrance"],["station","subway"]],
+  schools: [["amenity","school"],["amenity","college"]],
+  gyms: [["leisure","fitness_centre"],["amenity","gym"]],
+  parks: [["leisure","park"],["leisure","garden"]],
+  museums: [["tourism","museum"],["historic","monument"],["historic","castle"],["historic","ruins"]],
+};
+
+
+
+async function enrichMatch(match, destCity, intent) {
+  if (!match.lat || !match.lng) return match;
+
+  try {
+    const [restaurants, bars, cafes] = await Promise.all([
+      searchGoogle(match.lat, match.lng, ["restaurant"], 3),
+      searchGoogle(match.lat, match.lng, ["bar", "wine_bar", "pub"], 3),
+      searchGoogle(match.lat, match.lng, ["cafe"], 3),
+    ]);
+
+    if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
+    if (bars.length > 0) match.top3Bars = bars.map(v => formatVenue(v, destCity, match.name));
+    if (cafes.length > 0) match.top3Cafes = cafes.map(v => formatVenue(v, destCity, match.name));
+
+    // ONE batched Overpass call for all amenities + transit
+    const amenityData = await fetchAllAmenities(match.lat, match.lng, destCity);
+
+    if (amenityData.nearestMetro.length > 0) match.nearestMetro = amenityData.nearestMetro;
+    if (amenityData.nearestBus?.length > 0) match.nearestBus = amenityData.nearestBus;
+    if (amenityData.busCount)               match.busCount   = amenityData.busCount;
+    if (amenityData.busOnly)                match.busOnly    = true;
+
+    if (intent === "move") {
+      match.amenities = {
+        pharmacies:   amenityData.pharmacies,
+        supermarkets: amenityData.supermarkets,
+        parks:        amenityData.parks,
+        gyms:         amenityData.gyms,
+        intlSchools:  amenityData.intlSchools,
+        museums:      amenityData.museums,
+      };
     }
 
   } catch (err) {
-    showError(err.message || 'Something went wrong finding your match. Please try again in a moment.');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = '✦ Match it';
-    loading.classList.remove('visible');
-    isSearching = false;
-    // Restore all alternative buttons
-    document.querySelectorAll('.alt-search-btn').forEach(b => {
-      b.disabled = false;
-      b.textContent = 'Search for an alternative match →';
-      b.style.opacity = '1';
-      b.style.cursor = 'pointer';
-    });
-  }
-}
-
-async function renderResults(matches, homeHood, homeCity, destCity, isAlternative = false) {
-  const results = document.getElementById('resultsArea');
-
-  // Determine global match index offset so DOM IDs stay unique across appended cards
-  const existingCards = results.querySelectorAll('.result-card-wrap').length;
-  const indexOffset = existingCards;
-
-  const header = isAlternative
-    ? `<div style="margin:32px 0 24px;padding-top:24px;border-top:1px solid rgba(248,241,231,0.1);">
-        <p style="font-size:13px; color:rgba(248,241,231,0.5); letter-spacing:0.8px; text-transform:uppercase; font-weight:600; margin-bottom:10px;">✦ Your alternative match</p>
-        <p style="font-size:18px; color:var(--cream); font-family:'Cormorant Garamond',serif; font-weight:600;">
-          Here's another neighbourhood in ${destCity} for you:
-        </p>
-      </div>`
-    : `<div style="margin-bottom:24px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:10px;">
-          <p style="font-size:13px; color:rgba(248,241,231,0.5); letter-spacing:0.8px; text-transform:uppercase; font-weight:600;">✦ Your match</p>
-        </div>
-        <p style="font-size:18px; color:var(--cream); font-family:'Cormorant Garamond',serif; font-weight:600;">
-          If you love <em style="color:var(--terracotta-light)">${homeHood}</em> in ${homeCity}, here's your perfect neighbourhood in ${destCity}:
-        </p>
-      </div>`;
-
-  // Build cards HTML
-  const cards = matches.map((m, idx) => {
-    const i = idx + indexOffset; // unique index across all appended cards
-    const bookingUrl = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(m.name + ' ' + destCity)}`;
-    const airbnbUrl = `https://www.airbnb.com/s/${encodeURIComponent(destCity + '--' + m.name)}/homes`;
-
-    const restaurants = (m.top3Restaurants || []).map((r, j) => {
-      const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(r.name + ' ' + m.name + ' ' + destCity)}`;
-      const openBadge = r.openStatus ? `<span class="pick-open ${r.openStatus === 'Open now' ? 'open' : 'closed'}">${r.openStatus}</span>` : '';
-      const bookUrl = r.website || `https://maps.google.com/?q=${encodeURIComponent(r.name + ' ' + m.name + ' ' + destCity)}`;
-      const bookLabel = r.website ? '🌐 Website & Book →' : '📍 Find & Book →';
-      const bookLink = `<a href="${bookUrl}" target="_blank" class="pick-link" style="margin-right:8px;">${bookLabel}</a>`;
-      const photo = r.photoUrl ? `<img class="pick-photo" src="${r.photoUrl}" alt="${r.name}" loading="lazy" onerror="this.style.display='none'">` : '';
-      return `<div class="pick-item">
-        <div class="pick-num">${j+1}</div>
-        ${photo}
-        <div class="pick-info">
-          <div class="pick-name">${r.name}</div>
-          <div class="pick-desc">${r.description}</div>
-          ${openBadge}
-          <div style="margin-top:5px;">${bookLink}<a href="${mapsUrl}" target="_blank" class="pick-link">📍 Directions →</a></div>
-        </div>
-      </div>`;
-    }).join('');
-
-    const wineBars = (m.top3Bars || []).map((r, j) => {
-      const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(r.name + ' ' + m.name + ' ' + destCity)}`;
-      const openBadge = r.openStatus ? `<span class="pick-open ${r.openStatus === 'Open now' ? 'open' : 'closed'}">${r.openStatus}</span>` : '';
-      const bookUrl = r.website || `https://maps.google.com/?q=${encodeURIComponent(r.name + ' ' + m.name + ' ' + destCity)}`;
-      const bookLabel = r.website ? '🌐 Website & Book →' : '📍 Find & Book →';
-      const bookLink = `<a href="${bookUrl}" target="_blank" class="pick-link" style="margin-right:8px;">${bookLabel}</a>`;
-      const photo = r.photoUrl ? `<img class="pick-photo" src="${r.photoUrl}" alt="${r.name}" loading="lazy" onerror="this.style.display='none'">` : '';
-      return `<div class="pick-item">
-        <div class="pick-num">${j+1}</div>
-        ${photo}
-        <div class="pick-info">
-          <div class="pick-name">${r.name}</div>
-          <div class="pick-desc">${r.description}</div>
-          ${openBadge}
-          <div style="margin-top:5px;">${bookLink}<a href="${mapsUrl}" target="_blank" class="pick-link">📍 Directions →</a></div>
-        </div>
-      </div>`;
-    }).join('');
-
-    const cafePicks = (m.top3Cafes || []).map((r, j) => {
-      const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(r.name + ' ' + m.name + ' ' + destCity)}`;
-      const openBadge = r.openStatus ? `<span class="pick-open ${r.openStatus === 'Open now' ? 'open' : 'closed'}">${r.openStatus}</span>` : '';
-      const bookUrl = r.website || `https://maps.google.com/?q=${encodeURIComponent(r.name + ' ' + m.name + ' ' + destCity)}`;
-      const bookLabel = r.website ? '🌐 Website →' : '📍 Find →';
-      const bookLink = `<a href="${bookUrl}" target="_blank" class="pick-link" style="margin-right:8px;">${bookLabel}</a>`;
-      const photo = r.photoUrl ? `<img class="pick-photo" src="${r.photoUrl}" alt="${r.name}" loading="lazy" onerror="this.style.display='none'">` : '';
-      return `<div class="pick-item">
-        <div class="pick-num">${j+1}</div>
-        ${photo}
-        <div class="pick-info">
-          <div class="pick-name">${r.name}</div>
-          <div class="pick-desc">${r.description}</div>
-          ${openBadge}
-          <div style="margin-top:5px;">${bookLink}<a href="${mapsUrl}" target="_blank" class="pick-link">📍 Directions →</a></div>
-        </div>
-      </div>`;
-    }).join('');
-
-    const thingsToDo = (m.top3ThingsToDo || []).map((r, j) => {
-      const gygUrl = `https://www.getyourguide.com/s/?q=${encodeURIComponent(r.gygQuery || r.name + ' ' + destCity)}&partner_id=${GYG_AFF}`;
-      const viatorUrl = `https://www.viator.com/search/${encodeURIComponent(destCity)}?text=${encodeURIComponent(r.name)}&pid=${VIATOR_AFF}`;
-      const badge = r.isPaid ? '<span style="font-size:10px;background:rgba(196,98,45,0.2);color:var(--terracotta-light);padding:2px 8px;border-radius:100px;margin-left:6px;">Bookable</span>' : '<span style="font-size:10px;background:rgba(107,124,74,0.2);color:#8BA55A;padding:2px 8px;border-radius:100px;margin-left:6px;">Free</span>';
-      return `<div class="pick-item">
-        <div class="pick-num">${j+1}</div>
-        <div class="pick-info">
-          <div class="pick-name">${r.name}${badge}</div>
-          <div class="pick-desc">${r.description}</div>
-          ${r.isPaid ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
-            <a href="${gygUrl}" target="_blank" class="pick-link">🎫 GetYourGuide →</a>
-            <a href="${viatorUrl}" target="_blank" class="pick-link">🎟️ Viator →</a>
-          </div>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-
-    // Pros & cons
-    const prosHtml = (m.pros || []).map(p =>
-      `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:rgba(248,241,231,0.8);margin-bottom:6px;">
-        <span style="color:#8BA55A;font-size:16px;">✓</span> ${p}
-      </div>`
-    ).join('');
-
-    const consHtml = (m.cons || []).map(c =>
-      `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:rgba(248,241,231,0.8);margin-bottom:6px;">
-        <span style="color:var(--terracotta-light);font-size:16px;">!</span> ${c}
-      </div>`
-    ).join('');
-
-    const prosConsHtml = (prosHtml || consHtml) ? `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:14px 0;padding:16px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.06);">
-        ${prosHtml ? `<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#8BA55A;margin-bottom:10px;">✓ Highlights</div>${prosHtml}</div>` : ''}
-        ${consHtml ? `<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--terracotta-light);margin-bottom:10px;">! Watch out</div>${consHtml}</div>` : ''}
-      </div>` : '';
-
-    // Transport
-    const metroLink = METRO_LINKS[destCity];
-    const transportHtml = `
-      <div id="transit-wrap-${i}" style="margin:14px 0;padding:12px 14px;background:rgba(255,255,255,0.04);border-radius:10px;border:1px solid rgba(255,255,255,0.06);${m.nearestMetro?.length ? '' : 'display:none'}">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:rgba(248,241,231,0.4);">🚇 Nearest Metro / Transit</div>
-          ${metroLink ? `<a href="${metroLink.url}" target="_blank" style="font-size:11px;color:var(--terracotta-light);text-decoration:none;font-weight:600;">${metroLink.name} map →</a>` : ''}
-        </div>
-        <div id="transit-${i}" style="font-size:13px;color:rgba(248,241,231,0.8);">${m.nearestMetro?.join(' · ') || ''}</div>
-      </div>`;
-
-    // Station names row — shown below amenity grids in both modes
-    const stationNamesHtml = `
-      <div id="station-names-${i}" style="margin:8px 0 14px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.05);font-size:12px;color:rgba(248,241,231,0.5);display:${(m.nearestMetro?.length || m.busOnly) ? 'block' : 'none'};">
-        <div id="station-names-text-${i}">${m.busOnly ? '🚌 ' + (m.nearestBus?.join(' · ') || '') : '🚇 ' + (m.nearestMetro?.join(' · ') || '')}</div>
-        ${m.busOnly ? '<div style="font-size:10px;color:rgba(248,241,231,0.3);margin-top:4px;">No metro/train/tram within 800m</div>' : ''}
-      </div>`;
-
-    // VISIT amenity grid — restaurants, bars, coffees, parks, attractions, stations
-    const visitAmenitiesHtml = `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 0;">
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🍽️</div>
-          <div id="amenity-${i}-restaurants" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.restaurants ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Restaurants</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🍷</div>
-          <div id="amenity-${i}-bars" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.bars ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Bars & Pubs</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">☕</div>
-          <div id="amenity-${i}-cafes" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.cafes ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Coffee Shops</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🌳</div>
-          <div id="amenity-${i}-parks" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.parks ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Parks</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🏛️</div>
-          <div id="amenity-${i}-museums" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.museums ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Attractions</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">${m.busOnly ? '🚌' : '🚇'}</div>
-          <div id="amenity-${i}-stations" style="font-size:18px;font-weight:700;color:var(--cream);">${m.busOnly ? (m.busCount ?? m.nearestBus?.length ?? '…') : (m.nearestMetro?.length ?? '…')}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">${m.busOnly ? 'Bus stops' : 'Stations'}</div>
-        </div>
-      </div>
-      ${stationNamesHtml}
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:rgba(248,241,231,0.35);margin:16px 0 8px;">🎭 Entertainment & Culture</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:0;">
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎵</div>
-          <div id="amenity-${i}-musicVenues" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.musicVenues ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Music Venues</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎬</div>
-          <div id="amenity-${i}-cinemas" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.cinemas ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Cinemas</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎭</div>
-          <div id="amenity-${i}-theatres" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.theatres ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Theatres</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🛒</div>
-          <div id="amenity-${i}-markets" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.markets ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Street Markets</div>
-        </div>
-      </div>`;
-
-    // LIVE amenities grid (Museums shown on map as Attractions)
-    const amenitiesHtml = `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 0;">
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">💊</div>
-          <div id="amenity-${i}-pharmacies" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.pharmacies ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Pharmacies</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🛒</div>
-          <div id="amenity-${i}-supermarkets" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.supermarkets ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Supermarkets</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🌳</div>
-          <div id="amenity-${i}-parks" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.parks ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Parks</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🏋️</div>
-          <div id="amenity-${i}-gyms" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.gyms ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Gyms</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎓</div>
-          <div id="amenity-${i}-intlSchools" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.intlSchools ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Schools</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">${m.busOnly ? '🚌' : '🚇'}</div>
-          <div id="amenity-${i}-stations" style="font-size:18px;font-weight:700;color:var(--cream);">${m.busOnly ? (m.busCount ?? m.nearestBus?.length ?? '…') : (m.nearestMetro?.length ?? '…')}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">${m.busOnly ? 'Bus stops' : 'Stations'}</div>
-        </div>
-      </div>
-      ${stationNamesHtml}
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:rgba(248,241,231,0.35);margin:16px 0 8px;">🎭 Entertainment & Culture</div>
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:0;">
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎵</div>
-          <div id="amenity-${i}-musicVenues" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.musicVenues ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Music Venues</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎬</div>
-          <div id="amenity-${i}-cinemas" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.cinemas ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Cinemas</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🎭</div>
-          <div id="amenity-${i}-theatres" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.theatres ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Theatres</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🛒</div>
-          <div id="amenity-${i}-markets" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.markets ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Street Markets</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;">
-          <div style="font-size:20px;margin-bottom:4px;">🏥</div>
-          <div id="amenity-${i}-hospitals" style="font-size:18px;font-weight:700;color:var(--cream);">${m.amenities?.hospitals ?? '…'}</div>
-          <div style="font-size:10px;color:rgba(248,241,231,0.4);">Hospitals</div>
-        </div>
-      </div>`;
-
-    // Rent info (LIVE only)
-    const rentHtml = m.averageRent1bed ? `
-      <div style="margin:14px 0;padding:12px 14px;background:rgba(201,164,85,0.08);border-radius:10px;border:1px solid rgba(201,164,85,0.2);">
-        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--gold);">🏠 Average 1-bed rent: </span>
-        <span style="font-size:14px;color:var(--cream);font-weight:600;">${m.averageRent1bed}</span>
-      </div>` : '';
-
-    // Property links for LIVE mode
-    const isLive = currentIntent === 'move';
-    const propertySites = PROPERTY_SITES[destCity] || [];
-    const propertyLinksHtml = isLive && propertySites.length ? `
-      <div style="margin-top:12px;">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:rgba(248,241,231,0.4);margin-bottom:8px;">🏠 Find a place to rent in <span style="color:var(--terracotta-light)">${m.name}</span></div>
-        <div class="booking-btns">
-          ${propertySites.map((s, idx) => `
-            <a href="${s.url(m.name, destCity)}" target="_blank" class="${idx === 0 ? 'booking-btn-hotel' : 'booking-btn-airbnb'}">
-              🔍 ${s.name} →
-            </a>`).join('')}
-          <a href="${airbnbUrl}" target="_blank" class="booking-btn-airbnb">🏠 Airbnb →</a>
-        </div>
-        <div style="font-size:10px;color:rgba(248,241,231,0.3);margin-top:6px;">Links pre-filtered for ${m.name} · Refine on-site for best results</div>
-      </div>` : `
-      <div class="booking-btns">
-        <a href="${bookingUrl}" target="_blank" class="booking-btn-hotel">🏨 Hotels in ${m.name} →</a>
-        <a href="${airbnbUrl}" target="_blank" class="booking-btn-airbnb">🏠 Airbnb in ${m.name} →</a>
-      </div>`;
-
-    return `
-    <div class="result-card-wrap">
-    <div class="result-card" id="card-${i}" style="animation-delay:${i * 0.1}s">
-      <div id="photo-${i}" class="result-photo-placeholder">Loading photo…</div>
-      <div class="result-header">
-        <div>
-          <div class="result-city">${m.city} · <span style="color:var(--terracotta-light);font-size:11px;">${isLive ? '🏡 LIVE' : '✈️ VISIT'}</span></div>
-          <div class="result-hood-name">${m.name}</div>
-        </div>
-        <div class="result-score">${m.matchScore}% match</div>
-      </div>
-      <p style="font-size:15px; color:rgba(248,241,231,0.85); font-style:italic; margin-bottom:10px; font-family:'Cormorant Garamond',serif;">"${m.tagline}"</p>
-      <div class="result-desc">${m.whyItMatches}</div>
-      <div class="result-tags">${(m.vibes||[]).map(v=>`<span class="result-tag">${v}</span>`).join('')}</div>
-
-      ${prosConsHtml}
-      ${transportHtml}
-      ${isLive ? amenitiesHtml : visitAmenitiesHtml}
-      ${isLive ? rentHtml : ''}
-
-      ${m.mustTry ? `<div class="must-try">⭐ <strong>Must try:</strong> ${m.mustTry}</div>` : ''}
-
-      <div class="picks-section" id="landmarks-section-${i}" style="background:linear-gradient(135deg,rgba(201,164,85,0.06),rgba(61,43,31,0.2));border:1.5px solid rgba(201,164,85,0.25);border-radius:16px;padding:20px 20px 16px;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;gap:8px;">
-          <div>
-            <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold);margin-bottom:5px;">✦ City Guide</div>
-            <div class="picks-title" style="margin-bottom:0;font-size:17px;">🗺️ Top things to do in ${destCity}</div>
-            <div style="font-size:11px;color:rgba(248,241,231,0.3);margin-top:3px;font-style:italic;">Curated from ${m.name}</div>
-          </div>
-        </div>
-        <div id="landmarks-list-${i}" class="picks-list">
-          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;color:rgba(248,241,231,0.35);font-size:13px;">
-            <span style="display:inline-block;animation:spin 1.2s linear infinite;">⟳</span> Building your city guide…
-          </div>
-        </div>
-      </div>
-
-      <div class="picks-section">
-        <div class="picks-title">🍽️ Top restaurants</div>
-        <div class="picks-list">${restaurants || '<div class="pick-item"><div class="pick-desc" style="color:rgba(248,241,231,0.4);">No picks found nearby</div></div>'}</div>
-      </div>
-
-      <div class="picks-section">
-        <div class="picks-title">🍺 Top bars & pubs</div>
-        <div class="picks-list">${wineBars || '<div class="pick-item"><div class="pick-desc" style="color:rgba(248,241,231,0.4);">No picks found nearby</div></div>'}</div>
-      </div>
-
-      <div class="picks-section">
-        <div class="picks-title">☕ Your daily caffeine</div>
-        <div class="picks-list" id="cafe-picks-${i}">${cafePicks || '<div class="pick-item"><div class="pick-desc" style="color:rgba(248,241,231,0.4);">No picks found nearby</div></div>'}</div>
-      </div>
-
-      <div class="picks-section">
-        <div class="picks-title">🏛️ Top things to do</div>
-        <div class="picks-list">${thingsToDo || '<div class="pick-item"><div class="pick-desc">Loading…</div></div>'}</div>
-      </div>
-
-      <div class="result-extras">
-        <div class="result-extra"><div class="result-extra-label">🚶 Walkability</div><div class="result-extra-val">${m.walkScore||'—'}</div></div>
-        <div class="result-extra"><div class="result-extra-label">💶 Cost level</div><div class="result-extra-val">${m.costLevel||'—'}</div></div>
-        <div class="result-extra"><div class="result-extra-label">🔒 Safety</div><div class="result-extra-val">${m.safetyRating||'—'}</div></div>
-      </div>
-      <p style="font-size:12px; color:rgba(248,241,231,0.4); margin-top:12px;">🎯 Best for: ${m.bestFor||'—'}</p>
-
-      ${(m.lat && m.lng) ? `
-      <div class="map-layer-pills" id="map-pills-${i}">
-        <span class="map-layer-pill active" data-layer="neighbourhood" onclick="toggleMapLayer(${i},'neighbourhood',this)">🏘️ Neighbourhood</span>
-        ${isLive
-          ? `<span class="map-layer-pill" data-layer="supermarkets" onclick="toggleMapLayer(${i},'supermarkets',this)">🛒 Supermarkets</span>
-             <span class="map-layer-pill" data-layer="gyms" onclick="toggleMapLayer(${i},'gyms',this)">🏋️ Gyms</span>`
-          : `<span class="map-layer-pill" data-layer="restaurants" onclick="toggleMapLayer(${i},'restaurants',this)">🍽️ Restaurants</span>
-             <span class="map-layer-pill" data-layer="bars" onclick="toggleMapLayer(${i},'bars',this)">🍺 Bars & Pubs</span>
-             <span class="map-layer-pill" data-layer="museums" onclick="toggleMapLayer(${i},'museums',this)">🏛️ Attractions</span>
-             <span id="pill-toppicks-${i}" class="map-layer-pill" data-layer="toppicks" onclick="toggleMapLayer(${i},'toppicks',this)">⭐ Top Picks</span>`}
-        <span class="map-layer-pill" data-layer="coffee" onclick="toggleMapLayer(${i},'coffee',this)">☕ Coffee</span>
-        <span id="pill-transport-${i}" class="map-layer-pill" data-layer="transport" onclick="toggleMapLayer(${i},'transport',this)">🚇 Transport ⏳</span>
-        <span id="pill-parks-${i}" class="map-layer-pill" data-layer="parks" onclick="toggleMapLayer(${i},'parks',this)">🌳 Parks ⏳</span>
-        <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${m.lat},${m.lng}&radius=200" target="_blank" class="map-layer-pill" style="text-decoration:none;">📍 Street View</a>
-      </div>
-      <div class="result-map" id="map-${i}">
-        <button class="map-expand-btn" onclick="toggleMapFullscreen('map-${i}', this)">⛶ Expand</button>
-      </div>` : ''}
-
-      ${propertyLinksHtml}
-    </div>
-    </div>
-    <div style="text-align:center;margin:20px 0 8px;">
-      <button onclick="runMatch(true)" class="alt-search-btn" style="display:inline-flex;align-items:center;gap:8px;background:transparent;border:1.5px solid rgba(196,98,45,0.5);color:var(--terracotta-light);padding:13px 26px;border-radius:100px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s;letter-spacing:0.2px;" onmouseover="if(!isSearching){this.style.borderColor='var(--terracotta-light)';this.style.background='rgba(196,98,45,0.08)'}" onmouseout="this.style.borderColor='rgba(196,98,45,0.5)';this.style.background='transparent'">
-        Search for an alternative match →
-      </button>
-    </div>`;
-  }).join('');
-
-  const shareText = `<div style="margin-top:20px; padding:16px 20px; background:rgba(255,255,255,0.05); border-radius:12px; border:1px solid rgba(255,255,255,0.08);">
-    <p style="font-size:13px; color:rgba(248,241,231,0.5); margin-bottom:10px;">Share your match 👇</p>
-    <button onclick="shareMatch('${homeHood}','${homeCity}','${matches[0]?.name}','${destCity}')" style="background:var(--terracotta); color:white; border:none; border-radius:100px; padding:10px 20px; font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='var(--terracotta-light)'" onmouseout="this.style.background='var(--terracotta)'">
-      Share on social ✦
-    </button>
-  </div>`;
-
-  const premiumTeaser = `
-  <div style="margin-top:24px; padding:20px 28px; background:rgba(255,255,255,0.03); border-radius:16px; border:1px solid rgba(255,255,255,0.07); text-align:center;">
-    <p style="font-size:13px; color:rgba(248,241,231,0.45); margin-bottom:10px;">Enjoying MatchMyHood? Join the waitlist for early access when we launch.</p>
-    <a href="#newsletter" style="display:inline-block;background:var(--terracotta);color:white;text-decoration:none;padding:10px 24px;border-radius:100px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;">Join the waitlist →</a>
-  </div>\``;
-
-  if (isAlternative) {
-    // Remove old premiumTeaser + shareText before appending new content
-    results.querySelectorAll('.results-footer').forEach(el => el.remove());
-    const newContent = document.createElement('div');
-    newContent.innerHTML = header + cards + `<div class="results-footer">${shareText}${premiumTeaser}</div>`;
-    results.appendChild(newContent);
-    // Scroll to new alternative match, not top of results
-    newContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } else {
-    results.innerHTML = header + cards + `<div class="results-footer">${shareText}${premiumTeaser}</div>`;
-    results.classList.add('visible');
-    // UX fix: scroll to results section but offset down just enough — form stays partially visible
-    const resultsSection = document.getElementById('results');
-    const offset = resultsSection.getBoundingClientRect().top + window.scrollY - 80;
-    window.scrollTo({ top: offset, behavior: 'smooth' });
+    console.error("Enrichment error for", match.name, err.message);
   }
 
-  // Load photos and maps — staggered to avoid Unsplash rate limits
-  (async () => {
-    for (let idx = 0; idx < matches.length; idx++) {
-      const m = matches[idx];
-      const i = idx + indexOffset; // match DOM IDs
-      if (idx > 0) await new Promise(r => setTimeout(r, 1000));
-
-      // Load Unsplash photo with fallback queries
-      if (m.unsplashQuery) {
-        const shortQuery = m.unsplashQuery.split(' ').slice(0,2).join(' ');
-        const queries = [shortQuery, m.city, `${m.city} street`, 'lisbon barcelona london street'];
-        let photoUrl = null;
-        for (const q of queries) {
-          photoUrl = await fetchUnsplashPhoto(q);
-          if (photoUrl) break;
-          await new Promise(r => setTimeout(r, 500));
-        }
-        const photoEl = document.getElementById(`photo-${i}`);
-        if (photoEl && photoUrl) {
-          photoEl.outerHTML = `<img src="${photoUrl}" class="result-photo" alt="${m.name} neighbourhood" loading="lazy"/>`;
-        } else if (photoEl) {
-          photoEl.innerHTML = `🏘️ ${m.name}`;
-        }
-      }
-
-      // Init Mapbox map
-      if (m.lat && m.lng) {
-        setTimeout(() => {
-          const mapEl = document.getElementById(`map-${i}`);
-          if (mapEl && !mapInstances[i]) {
-            try {
-              mapboxgl.accessToken = MAPBOX_TOKEN;
-              const map = new mapboxgl.Map({
-                container: `map-${i}`,
-                style: 'mapbox://styles/mapbox/light-v11',
-                center: [m.lng, m.lat],
-                zoom: 14.5,
-                scrollZoom: false,
-                attributionControl: false,
-              });
-
-              map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-              map.addControl(new mapboxgl.AttributionControl({ compact: true }));
-
-              // ── 3D TOGGLE CONTROL ────────────────────────────────────────
-              const Toggle3D = {
-                _btn: null,
-                _active: false,
-                onAdd(map) {
-                  this._map = map;
-                  const container = document.createElement('div');
-                  container.className = 'mapboxgl-ctrl mapboxgl-ctrl-3d';
-                  this._btn = document.createElement('button');
-                  this._btn.className = 'map-3d-toggle';
-                  this._btn.innerHTML = '🏙️ 3D';
-                  this._btn.title = 'Toggle 3D view';
-                  this._btn.onclick = () => {
-                    this._active = !this._active;
-                    if (this._active) {
-                      this._btn.classList.add('active');
-                      // Save current camera so 3D starts on the hood, not the city
-                      const center = map.getCenter();
-                      const zoom   = map.getZoom();
-                      map.setStyle('mapbox://styles/mapbox/standard');
-                      map.once('style.load', () => {
-                        // Jump back to hood centre then tilt
-                        map.jumpTo({ center, zoom });
-                        map.easeTo({ pitch: 50, bearing: -15, duration: 800 });
-                        // Re-add neighbourhood boundary so it shows in 3D too
-                        try {
-                          const boundary = map._boundaryData || turf_circle([map._matchData.lng, map._matchData.lat], 0.6);
-                          map.addSource('neighbourhood', { type: 'geojson', data: boundary });
-                          map.addLayer({ id: 'neighbourhood-fill',   type: 'fill', source: 'neighbourhood', paint: { 'fill-color': '#C4622D', 'fill-opacity': 0.12 } });
-                          map.addLayer({ id: 'neighbourhood-border', type: 'line', source: 'neighbourhood', paint: { 'line-color': '#C4622D', 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [4, 2] } });
-                        } catch(e) {}
-                      });
-                    } else {
-                      this._btn.classList.remove('active');
-                      map.setStyle('mapbox://styles/mapbox/light-v11');
-                      map.once('style.load', () => {
-                        map.easeTo({ pitch: 0, bearing: 0, duration: 600 });
-                        // Re-add all custom layers wiped by setStyle
-                        restoreMapLayers(map, map._matchData, map._matchIndex);
-                      });
-                    }
-                  };
-                  container.appendChild(this._btn);
-                  return container;
-                },
-                onRemove() { this._btn = null; }
-              };
-              map.addControl(Toggle3D, 'top-right');
-
-              // Store match data on map instance for layer toggling
-              map._matchData = m;
-              map._matchIndex = i;
-              map._sourceData = {};        // pin GeoJSON per source, for 3D revert restore
-              map._boundaryData = null;    // current boundary GeoJSON (circle or polygon)
-              mapInstances[i] = map;
-
-              map.on('load', () => {
-                // ── NEIGHBOURHOOD BOUNDARY ──────────────────────────────
-                // Step 1: Draw circle IMMEDIATELY — guaranteed to always show.
-                // This is the reliable baseline regardless of Nominatim result.
-                try {
-                  const circle = turf_circle([m.lng, m.lat], 0.6);
-                  map._boundaryData = circle;
-                  map.addSource('neighbourhood', { type: 'geojson', data: circle });
-                  map.addLayer({ id: 'neighbourhood-fill', type: 'fill', source: 'neighbourhood', paint: { 'fill-color': '#C4622D', 'fill-opacity': 0.10 } });
-                  map.addLayer({ id: 'neighbourhood-border', type: 'line', source: 'neighbourhood', paint: { 'line-color': '#C4622D', 'line-width': 2, 'line-opacity': 0.7, 'line-dasharray': [4, 2] } });
-                } catch(e) { console.error('Circle boundary error:', e.message); }
-
-                // Step 2: Try Nominatim to upgrade circle to a real polygon.
-                // Serial queue ensures max 1 req/sec across all map instances.
-                // Tries full query first, then simplified name-only retry on failure.
-                queueNominatim(() => new Promise(resolve => {
-                  const cleanName = m.name.replace(/\s*\(.*?\)/g, '').trim();
-
-                  const applyPolygon = (feature) => {
-                    try {
-                      map._boundaryData = feature;
-                      map.getSource('neighbourhood').setData(feature);
-                      map.setPaintProperty('neighbourhood-fill', 'fill-opacity', 0.12);
-                      map.setPaintProperty('neighbourhood-border', 'line-width', 2.5);
-                      map.setPaintProperty('neighbourhood-border', 'line-opacity', 0.85);
-                    } catch(e) { console.error('Polygon upgrade error:', e.message); }
-                  };
-
-                  const fetchNominatim = (query) => {
-                    const controller = new AbortController();
-                    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
-                    return fetch(`https://api.matchmyhood.com/api/nominatim?q=${encodeURIComponent(query)}`, { signal: controller.signal })
-                      .then(r => r.json())
-                      .finally(() => clearTimeout(timeout));
-                  };
-
-                  // Attempt 1: "Neighbourhood, City"
-                  fetchNominatim(`${cleanName}, ${m.city}`)
-                    .then(data => {
-                      const feature = data.features?.[0];
-                      const isPolygon = feature?.geometry?.type === 'Polygon' || feature?.geometry?.type === 'MultiPolygon';
-                      if (isPolygon) { applyPolygon(feature); resolve(); return; }
-
-                      // Attempt 2: name only — Nominatim sometimes chokes on city disambiguation
-                      return fetchNominatim(cleanName)
-                        .then(data2 => {
-                          const f2 = data2.features?.[0];
-                          const isPoly2 = f2?.geometry?.type === 'Polygon' || f2?.geometry?.type === 'MultiPolygon';
-                          if (isPoly2) applyPolygon(f2);
-                          resolve();
-                        });
-                    })
-                    .catch(() => {
-                      // Both failed or timed out — circle stays, try name-only as last resort
-                      fetchNominatim(cleanName)
-                        .then(data3 => {
-                          const f3 = data3.features?.[0];
-                          const isPoly3 = f3?.geometry?.type === 'Polygon' || f3?.geometry?.type === 'MultiPolygon';
-                          if (isPoly3) applyPolygon(f3);
-                        })
-                        .catch(() => {})
-                        .finally(() => resolve());
-                    });
-                }));
-
-                // ── NEIGHBOURHOOD LABEL — small HTML overlay, top-left corner ──────
-                const labelEl = document.createElement('div');
-                labelEl.style.cssText = 'position:absolute;bottom:8px;left:10px;z-index:10;background:rgba(61,43,31,0.72);color:rgba(248,241,231,0.9);padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:0.3px;backdrop-filter:blur(6px);font-family:DM Sans,sans-serif;pointer-events:none;';
-                labelEl.textContent = m.name;
-                document.getElementById('map-' + i).appendChild(labelEl);
-
-                // ── RESTAURANT + BAR + COFFEE PINS — clustered sources ──
-                // Clustering groups nearby pins into count bubbles when zoomed out
-                const addClusteredSource = (id, color, radius) => {
-                  map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, cluster: true, clusterRadius: 40, clusterMaxZoom: 15 });
-                  // Cluster bubble
-                  map.addLayer({ id: id+'-cluster', type: 'circle', source: id, filter: ['has', 'point_count'], layout: { visibility: 'none' },
-                    paint: { 'circle-radius': ['step', ['get', 'point_count'], 14, 10, 18, 30, 22], 'circle-color': color, 'circle-opacity': 0.85, 'circle-stroke-width': 2, 'circle-stroke-color': 'white' }});
-                  // Cluster count label
-                  map.addLayer({ id: id+'-cluster-count', type: 'symbol', source: id, filter: ['has', 'point_count'], layout: { visibility: 'none', 'text-field': '{point_count_abbreviated}', 'text-size': 12, 'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'] },
-                    paint: { 'text-color': 'white' }});
-                  // Individual unclustered pin
-                  map.addLayer({ id: id+'-layer', type: 'circle', source: id, filter: ['!', ['has', 'point_count']], layout: { visibility: 'none' },
-                    paint: { 'circle-radius': radius, 'circle-color': color, 'circle-stroke-width': 1, 'circle-stroke-color': 'white' }});
-                  // Click cluster → zoom in
-                  map.on('click', id+'-cluster', e => {
-                    const features = map.queryRenderedFeatures(e.point, { layers: [id+'-cluster'] });
-                    const clusterId = features[0].properties.cluster_id;
-                    map.getSource(id).getClusterExpansionZoom(clusterId, (err, zoom) => {
-                      if (err) return;
-                      map.easeTo({ center: features[0].geometry.coordinates, zoom });
-                    });
-                  });
-                  map.on('mouseenter', id+'-cluster', () => map.getCanvas().style.cursor = 'pointer');
-                  map.on('mouseleave', id+'-cluster', () => map.getCanvas().style.cursor = '');
-                };
-                addClusteredSource('restaurants', '#C4622D', 5);
-                addClusteredSource('bars', '#7A3030', 5);
-                addClusteredSource('coffee', '#795548', 5);
-
-                // ── TOP PICKS — gold star pins for top 3 restaurants + bars ──
-                map.addSource('toppicks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }});
-                map.addLayer({ id: 'toppicks-layer', type: 'circle', source: 'toppicks', layout: { visibility: 'none' },
-                  paint: { 'circle-radius': 9, 'circle-color': '#C9A455', 'circle-stroke-width': 2, 'circle-stroke-color': 'white' }});
-
-                // ── EXTRA LAYERS (non-clustered — fewer pins) ──
-                map.addSource('supermarkets', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }});
-                map.addLayer({ id: 'supermarkets-layer', type: 'circle', source: 'supermarkets', layout: { visibility: 'none' }, paint: { 'circle-radius': 6, 'circle-color': '#2E7D32', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' }});
-                map.addSource('gyms', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }});
-                map.addLayer({ id: 'gyms-layer', type: 'circle', source: 'gyms', layout: { visibility: 'none' }, paint: { 'circle-radius': 6, 'circle-color': '#6A1B9A', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' }});
-                map.addSource('museums', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }});
-                map.addLayer({ id: 'museums-layer', type: 'circle', source: 'museums', layout: { visibility: 'none' }, paint: { 'circle-radius': 6, 'circle-color': '#B8860B', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' }});
-
-                // ── TRANSPORT — empty source, filled by amenity callback ──
-                map.addSource('transport', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }});
-                map.addLayer({ id: 'transport-layer', type: 'circle', source: 'transport', layout: { visibility: 'none' }, paint: { 'circle-radius': 7, 'circle-color': '#185FA5', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' }});
-
-                // ── PARKS — empty source, browser fetches named park polygons after 45s ──
-                map.addSource('parks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }});
-                map.addLayer({ id: 'parks-layer', type: 'fill', source: 'parks', layout: { visibility: 'none' }, paint: { 'fill-color': '#3B6D11', 'fill-opacity': 0.35 }});
-
-                setTimeout(() => {
-                  const pq = encodeURIComponent(`[out:json][timeout:10];way["leisure"="park"]["name"](around:700,${m.lat},${m.lng});out geom 5;`);
-                  fetch(`https://api.matchmyhood.com/api/overpass?data=${pq}`)
-                    .then(r => r.text())
-                    .then(raw => {
-                      if (raw.trimStart().startsWith('<')) return;
-                      const pd = JSON.parse(raw);
-                      const pf = (pd.elements||[]).filter(e=>e.geometry?.length>2).slice(0,5)
-                        .map(e=>({ type:'Feature', geometry:{ type:'Polygon', coordinates:[e.geometry.map(p=>[p.lon,p.lat])] }, properties:{ name:e.tags?.name||'Park' } }));
-                      if (pf.length) { const src = map.getSource('parks'); if(src) { map._sourceData['parks'] = { type:'FeatureCollection', features:pf }; src.setData(map._sourceData['parks']); } }
-                      const pill = document.getElementById(`pill-parks-${i}`);
-                      if (pill) pill.textContent = pill.textContent.replace(' ⏳','');
-                    }).catch(()=>{});
-                }, 45000);
-
-                // Rich popup on pin click — category-aware card with relevant CTAs
-                const PIN_META = {
-                  'restaurants':  { label: 'Restaurant',    color: '#C4622D', emoji: '🍽️' },
-                  'bars':         { label: 'Bar & Drinks',  color: '#7A3030', emoji: '🍷' },
-                  'coffee':       { label: 'Coffee',        color: '#795548', emoji: '☕' },
-                  'transport':    { label: 'Station',       color: '#185FA5', emoji: '🚇' },
-                  'supermarkets': { label: 'Supermarket',   color: '#2E7D32', emoji: '🛒' },
-                  'gyms':         { label: 'Gym',           color: '#6A1B9A', emoji: '🏋️' },
-                  'museums':      { label: 'Attraction',    color: '#B8860B', emoji: '🏛️' },
-                  'toppicks':     { label: 'Top Pick',       color: '#C9A455', emoji: '⭐' },
-                };
-                ['restaurants-layer', 'bars-layer', 'coffee-layer', 'toppicks-layer', 'transport-layer', 'supermarkets-layer', 'gyms-layer', 'museums-layer'].forEach(layerId => {
-                  map.on('click', layerId, e => {
-                    const props = e.features[0].properties;
-                    const pinType = props.pinType || layerId.replace('-layer','');
-                    const meta = PIN_META[pinType] || { label: 'Place', color: '#C4622D', emoji: '📍' };
-                    const cityCtx = [props.hood, props.city].filter(Boolean).join(', ');
-                    const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(props.name + (cityCtx ? ', ' + cityCtx : ''))}`;
-                    const gygUrl = `https://www.getyourguide.com/s/?q=${encodeURIComponent(props.name + ' ' + (props.city||''))}&partner_id=${GYG_AFF}`;
-                    const isBookable = ['museums','attractions'].includes(pinType);
-                    const isFood = ['restaurants','bars','coffee'].includes(pinType);
-                    const hasPhoto = props.isEnriched && props.photoUrl;
-                    const openBadge = props.openStatus ? `<span style="font-size:10px;padding:2px 7px;border-radius:100px;font-weight:700;background:${props.openStatus==='Open now'?'rgba(107,124,74,0.3)':'rgba(122,48,48,0.3)'};color:${props.openStatus==='Open now'?'#8EA065':'#E8875A'};">${props.openStatus}</span>` : '';
-                    new mapboxgl.Popup({ closeButton: true, maxWidth: '280px', className: 'mmh-popup' })
-                      .setLngLat(e.lngLat)
-                      .setHTML(`
-                        <div style="background:var(--earth);border-radius:10px;overflow:hidden;font-family:'DM Sans',sans-serif;">
-                          ${hasPhoto ? `<img src="${props.photoUrl}" style="width:100%;height:120px;object-fit:cover;display:block;" onerror="this.style.display='none'">` : `<div style="background:${meta.color};padding:8px 12px;display:flex;align-items:center;gap:6px;"><span style="font-size:14px;">${meta.emoji}</span><span style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:rgba(255,255,255,0.85);">${meta.label}</span></div>`}
-                          <div style="padding:10px 12px 12px;">
-                            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:4px;">
-                              <div style="font-size:14px;font-weight:700;color:var(--cream);line-height:1.3;">${props.name||'Unknown'}</div>
-                              ${openBadge}
-                            </div>
-                            ${props.description && props.isEnriched ? `<div style="font-size:11px;color:rgba(248,241,231,0.5);margin-bottom:8px;line-height:1.3;">${props.description}</div>` : ''}
-                            <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px;">
-                              ${props.website ? `<a href="${props.website}" target="_blank" style="font-size:11px;color:#E8875A;text-decoration:none;font-weight:600;">🌐 Visit website →</a>` : ''}
-                              <a href="${mapsUrl}" target="_blank" style="font-size:11px;color:${props.website?'rgba(248,241,231,0.5)':'#E8875A'};text-decoration:none;font-weight:600;">📍 Open in Google Maps →</a>
-                              ${isBookable ? `<a href="${gygUrl}" target="_blank" style="font-size:11px;color:#C9A455;text-decoration:none;font-weight:600;">🎫 Book experience →</a>` : ''}
-
-                            </div>
-                          </div>
-                        </div>
-                      `)
-                      .addTo(map);
-                  });
-                  map.on('mouseenter', layerId, () => map.getCanvas().style.cursor = 'pointer');
-                  map.on('mouseleave', layerId, () => map.getCanvas().style.cursor = '');
-                });
-              });
-
-            } catch(e) { console.error('Map error:', e); }
-          }
-        }, 500 + i * 300);
-      }
-    }
-  })();
+  return match;
 }
 
-function toggleMapFullscreen(mapId, btn) {
-  const mapEl = document.getElementById(mapId);
-  if (!mapEl) return;
-  const isFullscreen = mapEl.classList.toggle('fullscreen');
-  const mapIdx = parseInt(mapId.replace('map-', ''));
-  const mapInst = mapInstances[mapIdx];
-  const closeId = 'close-' + mapId;
-
-  if (isFullscreen) {
-    btn.style.display = 'none';
-    const siteNav = document.querySelector('nav');
-    if (siteNav) siteNav.style.display = 'none';
-
-    // ── Close button — bottom-right ──
-    const closeBtn = document.createElement('button');
-    closeBtn.id = closeId;
-    closeBtn.textContent = '✕ Close map';
-    closeBtn.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;background:rgba(61,43,31,0.9);color:rgba(248,241,231,0.95);border:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:DM Sans,sans-serif;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,0.4);letter-spacing:0.3px;';
-    closeBtn.onclick = () => toggleMapFullscreen(mapId, btn);
-    document.body.appendChild(closeBtn);
-
-    // ── Zoom controls — bottom-right above close ──
-    const zoomWrap = document.createElement('div');
-    zoomWrap.id = 'fs-zoom-' + mapId;
-    zoomWrap.style.cssText = 'position:fixed;bottom:80px;right:24px;z-index:99999;display:flex;flex-direction:column;gap:4px;';
-    [['＋', () => mapInst?.zoomIn()], ['－', () => mapInst?.zoomOut()]].forEach(([label, action]) => {
-      const zBtn = document.createElement('button');
-      zBtn.textContent = label;
-      zBtn.style.cssText = 'width:36px;height:36px;background:rgba(61,43,31,0.9);color:rgba(248,241,231,0.95);border:none;border-radius:6px;font-size:20px;font-weight:700;cursor:pointer;backdrop-filter:blur(8px);box-shadow:0 2px 8px rgba(0,0,0,0.3);line-height:1;';
-      zBtn.onclick = action;
-      zoomWrap.appendChild(zBtn);
-    });
-    document.body.appendChild(zoomWrap);
-
-    // ── Street View — hide original (bottom-right of map, clashes with Close),
-    // clone to bottom-left of viewport instead ──
-    const svLink = document.querySelector(`#map-pills-${mapIdx} a[href*="map_action=pano"]`);
-    if (svLink) {
-      svLink.style.display = 'none'; // hide original so it doesn't clash with Close button
-      const fsSv = svLink.cloneNode(true);
-      fsSv.id = 'fs-sv-' + mapId;
-      fsSv.style.cssText = 'position:fixed;bottom:24px;left:24px;z-index:99999;background:rgba(61,43,31,0.9);color:var(--cream);border:1px solid rgba(255,255,255,0.2);border-radius:8px;padding:10px 16px;font-size:13px;font-weight:600;font-family:DM Sans,sans-serif;text-decoration:none;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,0.4);';
-      fsSv.style.display = '';
-      document.body.appendChild(fsSv);
-    }
-
-    // ── Pin layer pills — top bar in fullscreen ──
-    const sourcePills = document.getElementById('map-pills-' + mapIdx);
-    if (sourcePills) {
-      const fsPills = document.createElement('div');
-      fsPills.id = 'fs-pills-' + mapId;
-      fsPills.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:90vw;';
-      // Clone each pill and wire it to the same toggle function
-      sourcePills.querySelectorAll('.map-layer-pill').forEach(pill => {
-        const clone = pill.cloneNode(true);
-        // Sync active state
-        if (pill.classList.contains('active')) clone.classList.add('active');
-        clone.style.cssText += 'background:rgba(61,43,31,0.88);backdrop-filter:blur(8px);';
-        clone.onclick = () => {
-          const layer = clone.dataset.layer;
-          // Toggle both original and clone in sync
-          const original = sourcePills.querySelector('[data-layer="' + layer + '"');
-          if (original) {
-            toggleMapLayer(mapIdx, layer, original);
-            clone.classList.toggle('active', original.classList.contains('active'));
-          }
-        };
-        fsPills.appendChild(clone);
-      });
-      document.body.appendChild(fsPills);
-    }
-
-  } else {
-    btn.style.display = '';
-    const siteNav = document.querySelector('nav');
-    if (siteNav) siteNav.style.display = '';
-    // Restore original Street View link visibility
-    const svLinkRestore = document.querySelector(`#map-pills-${mapIdx} a[href*="map_action=pano"]`);
-    if (svLinkRestore) svLinkRestore.style.display = '';
-    ['close-','fs-zoom-','fs-sv-','fs-pills-'].forEach(prefix => {
-      const el = document.getElementById(prefix + mapId);
-      if (el) el.remove();
-    });
-  }
-
-  // Resize Mapbox after container size change
-  if (mapInst) setTimeout(() => mapInst.resize(), 100);
-
-  // Escape key to close
-  if (isFullscreen) {
-    const handler = (e) => { if (e.key === 'Escape') { toggleMapFullscreen(mapId, btn); document.removeEventListener('keydown', handler); }};
-    document.addEventListener('keydown', handler);
-  }
-}
-
-// ── DRAW TRANSIT LINES ───────────────────────────────────────────────────────
-// Reusable — called on first load and again after 3D → flat style revert
-function drawTransitLines(map, lines, i) {
-  lines.forEach((line, idx) => {
-    setTimeout(() => {
-      const sourceId = `transit-line-${i}-${idx}`;
-      const layerId  = `transit-line-layer-${i}-${idx}`;
-      const geojson  = {
-        type: 'Feature',
-        properties: { name: line.name, ref: line.ref, colour: line.colour },
-        geometry: { type: 'MultiLineString', coordinates: line.coords }
-      };
-      try {
-        if (!map.getSource(sourceId)) {
-          map.addSource(sourceId, { type: 'geojson', data: geojson });
-          map.addLayer({
-            id: layerId, type: 'line', source: sourceId,
-            layout: { visibility: 'visible' },
-            paint: { 'line-color': line.colour, 'line-width': 1.8, 'line-opacity': 0.25 }
-          });
-          if (line.stops?.length) {
-            const stopsSourceId = `${sourceId}-stops`;
-            const stopsLayerId  = `${layerId}-stops`;
-            map.addSource(stopsSourceId, { type: 'geojson', data: {
-              type: 'FeatureCollection',
-              features: line.stops.map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { name: line.name, ref: line.ref } }))
-            }});
-            map.addLayer({ id: stopsLayerId, type: 'circle', source: stopsSourceId,
-              layout: { visibility: 'visible' },
-              paint: { 'circle-radius': 4, 'circle-color': line.colour, 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white', 'circle-opacity': 0.8 }
-            });
-          }
-          map.on('mouseenter', layerId, (e) => {
-            map.getCanvas().style.cursor = 'pointer';
-            const label = line.ref ? `${line.ref} — ${line.name}` : line.name;
-            new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 10 })
-              .setLngLat(e.lngLat)
-              .setHTML(`<div style="font-size:12px;font-weight:700;color:var(--cream);padding:2px 4px;">${label}</div>`)
-              .addTo(map);
-          });
-          map.on('mouseleave', layerId, () => {
-            map.getCanvas().style.cursor = '';
-            document.querySelectorAll('.mapboxgl-popup').forEach(p => p.remove());
-          });
-        }
-      } catch(e) { console.error('drawTransitLines error:', e.message); }
-    }, idx * 30);
-  });
-}
-
-// ── RESTORE MAP LAYERS AFTER 3D → FLAT STYLE SWAP ───────────────────────────
-// setStyle() wipes all custom sources/layers. This rebuilds them from stored data.
-function restoreMapLayers(map, m, i) {
-  try {
-    // Neighbourhood boundary
-    const boundary = map._boundaryData || turf_circle([m.lng, m.lat], 0.6);
-    map.addSource('neighbourhood', { type: 'geojson', data: boundary });
-    map.addLayer({ id: 'neighbourhood-fill', type: 'fill', source: 'neighbourhood', paint: { 'fill-color': '#C4622D', 'fill-opacity': boundary === map._boundaryData ? 0.12 : 0.10 } });
-    map.addLayer({ id: 'neighbourhood-border', type: 'line', source: 'neighbourhood', paint: { 'line-color': '#C4622D', 'line-width': 2, 'line-opacity': 0.7, 'line-dasharray': [4, 2] } });
-  } catch(e) {}
-
-  // Pin layers — restore sources + layers, re-populate with stored data
-  // Clustered sources — restaurants, bars, coffee
-  const clusteredSources = [
-    { id: 'restaurants', color: '#C4622D', radius: 5 },
-    { id: 'bars',        color: '#7A3030', radius: 5 },
-    { id: 'coffee',      color: '#795548', radius: 5 },
-  ];
-  clusteredSources.forEach(({ id, color, radius }) => {
-    try {
-      const data = map._sourceData[id] || { type: 'FeatureCollection', features: [] };
-      const pillEl = document.querySelector(`#map-pills-${i} [data-layer="${id}"]`);
-      const vis = pillEl?.classList.contains('active') ? 'visible' : 'none';
-      map.addSource(id, { type: 'geojson', data, cluster: true, clusterRadius: 40, clusterMaxZoom: 15 });
-      map.addLayer({ id: id+'-cluster', type: 'circle', source: id, filter: ['has','point_count'], layout: { visibility: vis },
-        paint: { 'circle-radius': ['step',['get','point_count'],14,10,18,30,22], 'circle-color': color, 'circle-opacity': 0.85, 'circle-stroke-width': 2, 'circle-stroke-color': 'white' }});
-      map.addLayer({ id: id+'-cluster-count', type: 'symbol', source: id, filter: ['has','point_count'], layout: { visibility: vis, 'text-field': '{point_count_abbreviated}', 'text-size': 12, 'text-font': ['DIN Offc Pro Medium','Arial Unicode MS Bold'] }, paint: { 'text-color': 'white' }});
-      map.addLayer({ id: id+'-layer', type: 'circle', source: id, filter: ['!',['has','point_count']], layout: { visibility: vis },
-        paint: { 'circle-radius': radius, 'circle-color': color, 'circle-stroke-width': 1, 'circle-stroke-color': 'white' }});
-    } catch(e) {}
-  });
-
-  // Non-clustered sources
-  const pinLayers = [
-    { id: 'supermarkets',layerId: 'supermarkets-layer',type: 'circle', paint: { 'circle-radius': 6, 'circle-color': '#2E7D32', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' } },
-    { id: 'gyms',        layerId: 'gyms-layer',        type: 'circle', paint: { 'circle-radius': 6, 'circle-color': '#6A1B9A', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' } },
-    { id: 'museums',     layerId: 'museums-layer',     type: 'circle', paint: { 'circle-radius': 6, 'circle-color': '#B8860B', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' } },
-    { id: 'transport',   layerId: 'transport-layer',   type: 'circle', paint: { 'circle-radius': 7, 'circle-color': '#185FA5', 'circle-stroke-width': 1.5, 'circle-stroke-color': 'white' } },
-    { id: 'toppicks',    layerId: 'toppicks-layer',    type: 'circle', paint: { 'circle-radius': 9, 'circle-color': '#C9A455', 'circle-stroke-width': 2,   'circle-stroke-color': 'white' } },
-  ];
-
-  pinLayers.forEach(({ id, layerId, type, paint }) => {
-    try {
-      const data = map._sourceData[id] || { type: 'FeatureCollection', features: [] };
-      map.addSource(id, { type: 'geojson', data });
-      const pillEl = document.querySelector(`#map-pills-${i} [data-layer="${id}"]`);
-      const wasVisible = pillEl?.classList.contains('active') ? 'visible' : 'none';
-      map.addLayer({ id: layerId, type, source: id, layout: { visibility: wasVisible }, paint });
-    } catch(e) {}
-  });
-
-  // Parks fill layer
-  try {
-    const parksData = map._sourceData['parks'] || { type: 'FeatureCollection', features: [] };
-    map.addSource('parks', { type: 'geojson', data: parksData });
-    const parksPill = document.querySelector(`#map-pills-${i} [data-layer="parks"]`);
-    const parksVisible = parksPill?.classList.contains('active') ? 'visible' : 'none';
-    map.addLayer({ id: 'parks-layer', type: 'fill', source: 'parks', layout: { visibility: parksVisible }, paint: { 'fill-color': '#3B6D11', 'fill-opacity': 0.35 } });
-  } catch(e) {}
-
-  // Re-attach click handlers on pin layers
-  ['restaurants-layer','bars-layer','coffee-layer','toppicks-layer','transport-layer','supermarkets-layer','gyms-layer','museums-layer'].forEach(layerId => {
-    map.on('click', layerId, e => {
-      const props = e.features[0].properties;
-      const cityCtx = [props.hood, props.city].filter(Boolean).join(', ');
-      const mapsUrl = props.mapsUrl || `https://maps.google.com/?q=${encodeURIComponent(props.name + (cityCtx ? ', ' + cityCtx : ''))}`;
-      new mapboxgl.Popup({ closeButton: true, maxWidth: '220px' })
-        .setLngLat(e.lngLat)
-        .setHTML(`<div style="font-size:13px;font-weight:700;color:var(--cream);margin-bottom:4px;">${props.name}</div><a href="${mapsUrl}" target="_blank" style="font-size:11px;color:#E8875A;text-decoration:none;font-weight:600;">📍 Open in Google Maps →</a>`)
-        .addTo(map);
-    });
-    map.on('mouseenter', layerId, () => map.getCanvas().style.cursor = 'pointer');
-    map.on('mouseleave', layerId, () => map.getCanvas().style.cursor = '');
-  });
-
-  // Restore transit lines if they were loaded
-  if (map._transitLines?.length) {
-    drawTransitLines(map, map._transitLines, i);
-  }
-}
-
-function toggleMapLayer(mapIndex, layer, pillEl) {
-  const map = mapInstances[mapIndex];
-  if (!map) return;
-
-  pillEl.classList.toggle('active');
-  const isActive = pillEl.classList.contains('active');
-
-  const layerMap = {
-    'neighbourhood': ['neighbourhood-fill', 'neighbourhood-border'],
-    'restaurants': ['restaurants-layer', 'restaurants-cluster', 'restaurants-cluster-count'],
-    'bars': ['bars-layer', 'bars-cluster', 'bars-cluster-count'],
-    'transport': ['transport-layer'],
-    'parks': ['parks-layer'],
-    'toppicks': ['toppicks-layer'],
-    'supermarkets': ['supermarkets-layer'],
-    'gyms': ['gyms-layer'],
-    'museums': ['museums-layer'],
-    'coffee': ['coffee-layer', 'coffee-cluster', 'coffee-cluster-count'],
+// ── PROMPTS ─────────────────────────────────────────────────────────────────
+function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent, excludeHoods) {
+  // Build rich vibe context — each vibe gets specific guidance for neighbourhood matching
+  const VIBE_GUIDANCE = {
+    "Wine & Nightlife":       "Prioritise neighbourhoods with a vibrant bar scene, nightclubs, late-night energy. Mention specific bar streets or nightlife clusters in whyItMatches.",
+    "Food & Restaurants":     "Prioritise neighbourhoods with exceptional food scenes — markets, acclaimed restaurants, diverse cuisines. Mention specific foodie credentials.",
+    "Shopping & Boutiques":   "Prioritise neighbourhoods with independent boutiques, design shops, markets. Flag any famous shopping streets.",
+    "Parks & Outdoors":       "Prioritise neighbourhoods near parks, waterfronts, green spaces. Mention walkability and outdoor lifestyle.",
+    "Culture & Architecture": "Prioritise neighbourhoods rich in museums, galleries, historic architecture, cultural institutions.",
+    "Music & Arts":           "Prioritise neighbourhoods with live music venues, art galleries, creative communities, street art.",
+    "Cafés & Chill":          "Prioritise neighbourhoods with excellent café culture, relaxed pace, good spots to work or read.",
+    "Family Friendly":        "Prioritise neighbourhoods with good schools, parks, playgrounds, family-oriented amenities, safe streets.",
+    "Digital Nomad":          "Prioritise neighbourhoods with excellent cafés/coworking, fast internet reputation, international community.",
+    "Off the Beaten Track":   "Avoid the obvious tourist or expat neighbourhoods. Pick something genuinely local, emerging, or alternative — the kind of place most visitors never find. Reflect this boldly in tagline and whyItMatches.",
+    "LGBT+ Friendly":         "Prioritise neighbourhoods known for LGBT+ acceptance, community, venues and events. Mention proximity to any known gay villages or LGBT+ hubs. Flag safety for LGBT+ travellers in safetyRating context.",
+    "Senior Friendly":        "Prioritise neighbourhoods with flat terrain, excellent public transport, good healthcare access, quieter streets, daytime café culture. Flag any hills or accessibility challenges in cons.",
+    "Accessible":             "Prioritise neighbourhoods with flat terrain, good pavement quality, accessible public transport. Flag hills, cobblestones, steps or poor accessibility in cons. Be honest about challenges.",
   };
+  const vibeList = safeVibes ? safeVibes.split(", ").filter(Boolean) : [];
+  const vibeGuidance = vibeList.map(v => VIBE_GUIDANCE[v]).filter(Boolean).join(" ");
+  const vibeContext = vibeList.length
+    ? "\nThe traveller has selected these preferences: " + safeVibes + ".\n" + vibeGuidance + "\nReflect these preferences throughout the response \u2014 in tagline, whyItMatches, pros, cons, bestFor and top3ThingsToDo."
+    : "";
+  const excludeContext = Array.isArray(excludeHoods) && excludeHoods.length > 0
+    ? `\nDo NOT suggest any of these neighbourhoods — the user has already seen them: ${excludeHoods.map(h => `"${h}"`).join(", ")}. Suggest a genuinely different option.`
+    : "";
 
-  const layers = layerMap[layer] || [];
-  layers.forEach(id => {
-    if (map.getLayer(id)) {
-      map.setLayoutProperty(id, 'visibility', isActive ? 'visible' : 'none');
-    }
-  });
-}
+  if (intent === "move") {
+    return `You are MatchMyHood, an expert neighbourhood matching tool for people relocating.
 
-function shareMatch(fromHood, fromCity, toHood, toCity) {
-  const text = `If you love ${fromHood} in ${fromCity}, you'll love ${toHood} in ${toCity} — matched by MatchMyHood 🏘️✨ matchmyhood.com #MatchMyHood #travel`;
-  if (navigator.share) {
-    navigator.share({ text, url: 'https://matchmyhood.com' });
+A person loves "${safehomeHood}" in ${safehomeCity}. They are RELOCATING long-term to ${safedestCity}.${vibeContext}${excludeContext}
+
+Find the single BEST matching neighbourhood in ${safedestCity} based on character, daily life quality, community feel, cost, and liveability.
+
+CRITICAL RULES:
+- Neighbourhoods must genuinely exist in ${safedestCity}
+- Match character genuinely — family area = family area, creative hub = creative hub
+- lat/lng must be the EXACT neighbourhood centre coordinates
+- Be honest about downsides — this helps people make real decisions
+
+Respond ONLY with a valid JSON array, no markdown:
+[
+  {
+    "name": "Neighbourhood Name",
+    "city": "${safedestCity}",
+    "matchScore": 92,
+    "tagline": "One evocative sentence",
+    "whyItMatches": "2 sentences explaining why this matches ${safehomeHood} for living.",
+    "vibes": ["tag1", "tag2", "tag3"],
+    "pros": ["Great public transport", "Excellent local market", "Strong expat community"],
+    "cons": ["Limited English spoken", "Can be noisy on weekends", "Fewer green spaces"],
+    "averageRent1bed": "€900-1200/month",
+    "costLevel": "Mid-range",
+    "walkScore": "High",
+    "safetyRating": "Very safe",
+    "bestFor": "Who this neighbourhood suits best for living",
+    "top3ThingsToDo": [
+      {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
+      {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
+      {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false}
+    ],
+    "mustTry": "One iconic local food or drink and where",
+    "unsplashQuery": "3-4 word photo query",
+    "lat": 41.1234,
+    "lng": -8.6789
+  }
+]
+
+Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact neighbourhood centre.`;
+
   } else {
-    navigator.clipboard.writeText(text).then(() => alert('Copied to clipboard! Paste it on TikTok, Instagram or X 🎉'));
+    return `You are MatchMyHood, an expert neighbourhood matching tool for travellers.
+
+A person loves "${safehomeHood}" in ${safehomeCity}. They are VISITING ${safedestCity} as a traveller.${vibeContext}${excludeContext}
+
+Find the single BEST matching neighbourhood in ${safedestCity} to stay in, based on character, energy, food scene, nightlife, and walkability.
+
+CRITICAL RULES:
+- Neighbourhoods must genuinely exist in ${safedestCity}
+- Match character genuinely — gritty creative = gritty creative, not polished riverside
+- lat/lng must be the EXACT neighbourhood centre coordinates
+- Be honest about downsides for visitors — noise, tourist density, safety at night etc.
+
+Respond ONLY with a valid JSON array, no markdown:
+[
+  {
+    "name": "Neighbourhood Name",
+    "city": "${safedestCity}",
+    "matchScore": 92,
+    "tagline": "One evocative sentence",
+    "whyItMatches": "2 sentences explaining why this matches ${safehomeHood} for a visit.",
+    "vibes": ["tag1", "tag2", "tag3"],
+    "pros": ["Amazing food scene", "Very walkable", "Great nightlife"],
+    "cons": ["Noisy at night — light sleepers beware", "Very touristy on weekends", "Limited parking"],
+    "costLevel": "Mid-range",
+    "walkScore": "High",
+    "safetyRating": "Very safe",
+    "bestFor": "Who this neighbourhood suits best for a visit",
+    "top3ThingsToDo": [
+      {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
+      {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": true},
+      {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false}
+    ],
+    "mustTry": "One iconic food or drink and where to get it",
+    "unsplashQuery": "3-4 word photo query",
+    "lat": 41.1234,
+    "lng": -8.6789
+  }
+]
+
+Rules: 1 result only, score 88-96%, JSON array with one object, lat/lng = exact neighbourhood centre.`;
   }
 }
 
-function showError(msg) {
-  const el = document.getElementById('errorMsg');
-  el.textContent = '⚠️ ' + msg;
-  el.classList.add('visible');
-}
+// ── MAIN ROUTE ───────────────────────────────────────────────────────────────
+app.post("/api/match", async (req, res) => {
+  const { homeCity, homeHood, destCity, vibes, intent, excludeHoods } = req.body;
 
-const BEEHIIV_PUBLICATION_ID = 'YOUR_BEEHIIV_PUBLICATION_ID'; // Get from beehiiv.com dashboard
-
-function handleWaitlist(e) {
-  e.preventDefault();
-  const email = document.getElementById('emailInput').value;
-  const plan = document.getElementById('waitlistPlan').value;
-  if (!email || !email.includes('@')) {
-    alert('Please enter a valid email address.');
-    return;
+  if (!homeCity || !homeHood || !destCity) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+  if (homeCity === destCity) {
+    return res.status(400).json({ error: "Home city and destination must be different" });
   }
 
-  // Submit to Netlify Forms
-  fetch('/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ 'form-name': 'waitlist', email, plan }).toString()
-  }).then(() => {
-    document.getElementById('newsletterSuccess').style.display = 'block';
-    document.getElementById('emailInput').value = '';
-    document.querySelector('.newsletter-form button').textContent = 'Done ✓';
-  }).catch(() => {
-    document.getElementById('newsletterSuccess').style.display = 'block';
-    document.getElementById('emailInput').value = '';
-  });
+  const sanitise = (str) => str.replace(/[<>{}]/g, "").slice(0, 80);
+  const safehomeCity = sanitise(homeCity);
+  const safehomeHood = sanitise(homeHood);
+  const safedestCity = sanitise(destCity);
+  const safeVibes = Array.isArray(vibes) ? vibes.map(v => sanitise(v)).join(", ") : "";
+  const safeExcludeHoods = Array.isArray(excludeHoods)
+    ? excludeHoods.map(h => sanitise(String(h))).filter(Boolean)
+    : [];
+  const currentIntent = intent === "move" ? "move" : "visit";
 
-  // Also subscribe to Beehiiv newsletter
-  if (!BEEHIIV_PUBLICATION_ID.includes('YOUR_')) {
-    fetch(`https://api.beehiiv.com/v2/publications/${BEEHIIV_PUBLICATION_ID}/subscriptions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, reactivate_existing: true, send_welcome_email: true })
-    }).catch(err => console.log('Beehiiv:', err));
-  }
-}
+  try {
+    // Step 1: Claude — neighbourhood matches with intent-specific fields
+    const prompt = buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, currentIntent, safeExcludeHoods);
+    const text = await callClaude(prompt);
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    let matches = JSON.parse(cleaned);
 
-function handleSuggestion(e, type) {
-  e.preventDefault();
-  const form = e.target;
-  fetch('/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(new FormData(form)).toString()
-  }).then(() => {
-    document.getElementById(type + 'Success').style.display = 'block';
-    form.reset();
-  }).catch(() => {
-    document.getElementById(type + 'Success').style.display = 'block';
-    form.reset();
-  });
-}
-
-// Pre-select plan in waitlist from pricing card clicks
-// Stripe checkout handler — replace with real Stripe links when ready
-const STRIPE_LINKS = {
-  payg: 'https://buy.stripe.com/YOUR_PAYG_LINK',
-  explorer_monthly: 'https://buy.stripe.com/YOUR_EXPLORER_MONTHLY_LINK',
-  explorer_annual: 'https://buy.stripe.com/YOUR_EXPLORER_ANNUAL_LINK',
-  founding_member: 'https://buy.stripe.com/YOUR_FOUNDING_MEMBER_LINK'
-};
-
-function handleStripeCheckout(plan) {
-  const link = STRIPE_LINKS[plan];
-  if (!link || link.includes('YOUR_')) {
-    // Stripe not yet set up — redirect to waitlist
-    document.querySelector('#newsletter').scrollIntoView({ behavior: 'smooth' });
-    const sel = document.getElementById('waitlistPlan');
-    if (sel) {
-      if (plan === 'founding_member') sel.value = 'founding';
-      else if (plan.startsWith('explorer')) sel.value = 'explorer';
-      else sel.value = 'free';
+    if (!Array.isArray(matches) || matches.length === 0) {
+      throw new Error("Invalid response format");
     }
-    return;
+
+    // Fast enrichment — single match (Foursquare only)
+    matches = await Promise.all(
+      matches.map(m => enrichMatchFast(m, safedestCity))
+    );
+
+    return res.json({ matches, intent: currentIntent });
+
+  } catch (err) {
+    console.error("Error:", err.message);
+    return res.status(500).json({ error: err.message });
   }
-  window.open(link, '_blank');
-}
-
-function selectPlan(plan) {
-  const sel = document.getElementById('waitlistPlan');
-  if (sel) sel.value = plan;
-}
-
-// Smooth scroll
-document.querySelectorAll('a[href^="#"]').forEach(a => {
-  a.addEventListener('click', e => {
-    e.preventDefault();
-    const target = document.querySelector(a.getAttribute('href'));
-    if (target) target.scrollIntoView({ behavior: 'smooth' });
-  });
 });
 
-// Nav scroll effect
-window.addEventListener('scroll', () => {
-  const nav = document.querySelector('nav');
-  if (nav) {
-    if (window.scrollY > 20) {
-      nav.style.boxShadow = '0 4px 24px rgba(61,43,31,0.1)';
-    } else {
-      nav.style.boxShadow = 'none';
+// ── BACKGROUND AMENITIES ENDPOINT ───────────────────────────────────────────
+// Called by frontend after results are shown — enriches with slow Overpass data
+app.post("/api/amenities", async (req, res) => {
+  const { matches, destCity } = req.body;
+  if (!matches || !Array.isArray(matches)) {
+    return res.status(400).json({ error: "Missing matches" });
+  }
+
+  try {
+    const enriched = [];
+    for (const m of matches) {
+      if (!m.lat || !m.lng) { enriched.push(m); continue; }
+
+      try {
+        // ONE batched Overpass call — all counts + coords from OSM (accurate, no API cap)
+        const amenityData = await fetchAllAmenities(m.lat, m.lng, destCity, m._polygon || null);
+
+        if (amenityData.nearestMetro.length > 0) m.nearestMetro = amenityData.nearestMetro;
+        if (amenityData.nearestBus?.length > 0)  m.nearestBus   = amenityData.nearestBus;
+        if (amenityData.busCount)                  m.busCount     = amenityData.busCount;
+        if (amenityData.busOnly)                   m.busOnly      = true;
+        if (amenityData.transitCoords?.length)      m.transitCoords      = amenityData.transitCoords;
+        if (amenityData.heavyTransitCoords?.length)  m.heavyTransitCoords = amenityData.heavyTransitCoords;
+        if (amenityData.busCoords?.length)           m.busCoords          = amenityData.busCoords;
+        if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
+        if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
+        if (amenityData.museumCoords?.length)       m.museumCoords       = amenityData.museumCoords;
+        if (amenityData.cafeCoords?.length)         m.cafeCoords         = amenityData.cafeCoords;
+        if (amenityData.restaurantCoords?.length)   m.restaurantCoords   = amenityData.restaurantCoords;
+        if (amenityData.barCoords?.length)          m.barCoords          = amenityData.barCoords;
+
+        m.amenities = {
+          pharmacies:   amenityData.pharmacies,
+          supermarkets: amenityData.supermarkets,
+          parks:        amenityData.parks,
+          gyms:         amenityData.gyms,
+          intlSchools:  amenityData.intlSchools,
+          museums:      amenityData.museums,
+          restaurants:  amenityData.restaurants,
+          cafes:        amenityData.cafes,
+          bars:         amenityData.bars,
+          musicVenues:  amenityData.musicVenues,
+          cinemas:      amenityData.cinemas,
+          theatres:     amenityData.theatres,
+          markets:      amenityData.markets,
+          hospitals:    amenityData.hospitals,
+          stations:     amenityData.stationCount || 0,
+        };
+
+
+      } catch (e) {
+        console.error("Amenity error for", m.name, e.message);
+      }
+
+      enriched.push(m);
+      // Brief pause between neighbourhoods to be polite to Overpass
+      await new Promise(r => setTimeout(r, 500));
     }
+
+    return res.json({ matches: enriched });
+
+  } catch (err) {
+    console.error("Amenities error:", err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
-</script>
-</body>
-</html>
+
+
+// ── OVERPASS BROWSER PROXY ───────────────────────────────────────────────────
+// Browser can't call Overpass directly at scale (rate limits + CORS on some endpoints).
+// This proxy forwards park polygon queries from the browser through the server.
+app.get("/api/overpass", async (req, res) => {
+  const data = req.query.data;
+  if (!data) return res.status(400).json({ error: 'Missing data param' });
+
+  const body = 'data=' + data;
+  const proxyReq = https.request({
+    hostname: 'overpass-api.de',
+    path: '/api/interpreter',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(body),
+    },
+  }, (proxyRes) => {
+    let result = '';
+    proxyRes.on('data', chunk => result += chunk);
+    proxyRes.on('end', () => {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.send(result);
+    });
+  });
+  proxyReq.on('error', (e) => {
+    console.error('Overpass proxy error:', e.message);
+    res.status(500).json({ error: 'Overpass unavailable' });
+  });
+  proxyReq.write(body);
+  proxyReq.end();
+});
+
+app.get("/api/nominatim", async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: "Missing q param" });
+  const decoded = decodeURIComponent(q);
+  const path = `/search?q=${encodeURIComponent(decoded)}&format=geojson&polygon_geojson=1&limit=1`;
+  const nomReq = https.request({
+    hostname: "nominatim.openstreetmap.org", path, method: "GET",
+    headers: { "User-Agent": "MatchMyHood/1.0 (matchmyhood.com)", "Accept": "application/json" },
+  }, (nomRes) => {
+    let data = "";
+    nomRes.on("data", chunk => data += chunk);
+    nomRes.on("end", () => { res.setHeader("Content-Type","application/json"); res.setHeader("Access-Control-Allow-Origin","*"); res.send(data); });
+  });
+  nomReq.on("error", (e) => { console.error("Nominatim proxy error:", e.message); res.status(500).json({ error: "Nominatim unavailable" }); });
+  nomReq.end();
+});
+
+// ── TRANSIT LINES ENDPOINT ───────────────────────────────────────────────────
+// Returns real metro/tram/train route geometries from Overpass with name, ref, colour
+app.post("/api/transitlines", async (req, res) => {
+  const { lat, lng } = req.body;
+  if (!lat || !lng) return res.status(400).json({ error: 'Missing lat/lng' });
+
+  // Use bbox of ~40km around the point to cover the full city
+  const delta = 0.35; // ~40km
+  const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
+
+  const query = `
+[out:json][timeout:45];
+(
+  relation["route"~"subway|light_rail|tram|rail"]["type"!="route_master"](${bbox});
+);
+out geom qt;`;
+
+  const body = `data=${encodeURIComponent(query)}`;
+
+  const MIRRORS = ["overpass-api.de", "z.overpass-api.de", "lz4.overpass-api.de"];
+
+  // Default colour palette for lines without OSM colour tag
+  const LINE_COLOURS = ['#E74C3C','#3498DB','#2ECC71','#F39C12','#9B59B6','#1ABC9C','#E67E22','#E91E63'];
+
+  async function tryMirror(hostname) {
+    return new Promise((resolve, reject) => {
+      const r = https.request({
+        hostname, path: "/api/interpreter", method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "Content-Length": Buffer.byteLength(body) },
+      }, (response) => {
+        let d = "";
+        response.on("data", chunk => d += chunk);
+        response.on("end", () => {
+          if (d.trimStart().startsWith("<")) reject(new Error(`${hostname} rate-limited`));
+          else resolve(d);
+        });
+        response.on("error", reject);
+      });
+      r.on("error", reject);
+      r.write(body);
+      r.end();
+    });
+  }
+
+  let rawData = null;
+  for (const mirror of MIRRORS) {
+    try {
+      rawData = await tryMirror(mirror);
+      console.log(`Transit lines ${mirror} OK — ${rawData.length} bytes`);
+      break;
+    } catch(e) {
+      console.error(`Transit lines ${mirror} failed: ${e.message}`);
+    }
+  }
+
+  if (!rawData) return res.json({ lines: [] });
+
+  try {
+    const parsed = JSON.parse(rawData);
+    const relations = parsed.elements || [];
+    const lines = [];
+    const refColourMap = {};
+    const seenRefs  = new Set(); // deduplicate by ref
+    const seenNames = new Set(); // deduplicate by normalised name (for lines without ref)
+    let colourIdx = 0;
+
+    // Normalise a line name for dedup — strips direction info
+    // "T-bana 13: Norsborg → Ropsten" → "t-bana 13"
+    const normaliseName = (name) => name
+      .toLowerCase()
+      .replace(/[→←↔:].*/g, '')   // strip everything after direction arrows or colon
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    for (const rel of relations) {
+      const name = rel.tags?.name || rel.tags?.ref || 'Transit Line';
+      const ref  = rel.tags?.ref || '';
+
+      // Deduplicate by ref first
+      if (ref && seenRefs.has(ref)) continue;
+      if (ref) seenRefs.add(ref);
+
+      // For lines without ref, deduplicate by normalised name
+      if (!ref) {
+        const normName = normaliseName(name);
+        if (seenNames.has(normName)) continue;
+        seenNames.add(normName);
+      }
+
+      // Assign colour: OSM colour tag first, then consistent per ref, then palette
+      const osmColour = rel.tags?.colour || rel.tags?.color;
+      let colour;
+      if (osmColour) {
+        colour = osmColour;
+        if (ref && !refColourMap[ref]) refColourMap[ref] = osmColour;
+      } else if (ref && refColourMap[ref]) {
+        colour = refColourMap[ref]; // same ref = same colour
+      } else {
+        colour = LINE_COLOURS[colourIdx % LINE_COLOURS.length];
+        if (ref) refColourMap[ref] = colour;
+        colourIdx++;
+      }
+
+      // Build coordinates from member way geometries
+      const coords = [];
+      const stops = [];
+      for (const member of (rel.members || [])) {
+        if (member.type === 'way' && member.geometry?.length) {
+          coords.push(member.geometry.map(p => [p.lon, p.lat]));
+        }
+        if (member.type === 'node' && member.lat && member.lon &&
+            (member.role === 'stop' || member.role === 'platform' || member.role === 'stop_entry_only' || member.role === 'stop_exit_only')) {
+          stops.push([member.lon, member.lat]);
+        }
+      }
+
+      if (coords.length > 0) {
+        lines.push({ name, ref, colour, coords, stops });
+      }
+    }
+
+    console.log(`Transit lines parsed: ${relations.length} relations → ${lines.length} lines after processing`);
+    return res.json({ lines });
+  } catch(e) {
+    console.error('Transit lines parse error:', e.message);
+    return res.json({ lines: [] });
+  }
+});
+
+// ── HAVERSINE ────────────────────────────────────────────────────────────────
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ── LANDMARKS ENDPOINT ───────────────────────────────────────────────────────
+// Claude generates top 8 must-visit landmarks/experiences for the city,
+// with transport advice and distance from the matched neighbourhood centre.
+app.post("/api/landmarks", async (req, res) => {
+  const { city, neighbourhood, lat, lng, vibes } = req.body;
+  if (!city || !neighbourhood || !lat || !lng) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const vibeContext = Array.isArray(vibes) && vibes.length
+    ? `
+
+The traveller has selected these interests: ${vibes.join(', ')}. Weight your picks accordingly — e.g. for "Wine & Nightlife" lean toward great bars, clubs and late-night scenes; for "Food & Restaurants" include iconic food markets and must-eat spots; for "Music & Arts" include live music venues and galleries; for "Parks & Outdoors" include the best green spaces and walks. Still include 2-3 unmissable iconic sights regardless of vibes.`
+    : '';
+
+  const prompt = `You are an opinionated, well-travelled city expert writing for a savvy traveller staying in ${neighbourhood}, ${city}.${vibeContext}
+
+Create the definitive "8 things you must do in ${city}" list — the kind a brilliant local friend would give you. This means:
+- The truly iconic sights that define the city (even if obvious — if Big Ben defines London, include it; if Sagrada Família defines Barcelona, it leads the list)
+- Unmissable experiences: world-famous markets, shows, food scenes, viewpoints, neighbourhoods to walk
+- Cultural gems: great museums, architectural wonders, historic quarters
+- One genuinely local secret that most tourists miss
+
+Be bold and specific. "See a West End show" is valid. "Walk Notting Hill on market day" is valid. "Eat at Noma" is valid. Don't be conservative — include what the city is genuinely famous for, not just safe picks.
+
+For each, give the realistic travel time from ${neighbourhood} (centre: ${lat}, ${lng}).
+
+Respond ONLY with a valid JSON array, no markdown:
+[
+  {
+    "name": "Sagrada Família",
+    "why": "Gaudí's century-in-the-making basilica — the most visited site in Spain for good reason",
+    "distanceKm": 2.1,
+    "transport": "metro",
+    "transportLine": "L5 (Sagrada Família stop)",
+    "minutes": 10,
+    "bookInAdvance": true,
+    "tip": "Book online — queues without tickets can be 2 hours"
+  }
+]
+
+Rules:
+- distanceKm = straight-line km from ${neighbourhood} centre, 1 decimal place
+- transport = one of: "walk", "metro", "bus", "tram", "train", "taxi"
+- transportLine = specific line/route if applicable, else ""
+- minutes = realistic door-to-door time as integer
+- bookInAdvance = true if tickets/reservations strongly recommended
+- tip = one punchy practical tip (max 15 words), or "" if none
+- DO NOT omit the city's most iconic sight just because it's well-known
+- Include at least one unmissable experience (market, show, food scene, walk)
+- Include one genuinely local hidden gem as the last item
+- Order by must-see priority
+- 8 items exactly`;
+
+  try {
+    const text = await callClaude(prompt);
+    const cleaned = text.replace(/\`\`\`json|\`\`\`/g, '').trim();
+    const landmarks = JSON.parse(cleaned);
+    if (!Array.isArray(landmarks)) throw new Error('Invalid format');
+    return res.json({ landmarks });
+  } catch (err) {
+    console.error('Landmarks error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`MatchMyHood API running on port ${PORT}`));
