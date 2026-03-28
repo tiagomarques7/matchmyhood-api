@@ -920,12 +920,18 @@ function haversine(lat1, lng1, lat2, lng2) {
 // Claude generates top 8 must-visit landmarks/experiences for the city,
 // with transport advice and distance from the matched neighbourhood centre.
 app.post("/api/landmarks", async (req, res) => {
-  const { city, neighbourhood, lat, lng } = req.body;
+  const { city, neighbourhood, lat, lng, vibes } = req.body;
   if (!city || !neighbourhood || !lat || !lng) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  const prompt = `You are an opinionated, well-travelled city expert writing for a savvy traveller staying in ${neighbourhood}, ${city}.
+  const vibeContext = Array.isArray(vibes) && vibes.length
+    ? `
+
+The traveller has selected these interests: ${vibes.join(', ')}. Weight your picks accordingly — e.g. for "Wine & Nightlife" lean toward great bars, clubs and late-night scenes; for "Food & Restaurants" include iconic food markets and must-eat spots; for "Music & Arts" include live music venues and galleries; for "Parks & Outdoors" include the best green spaces and walks. Still include 2-3 unmissable iconic sights regardless of vibes.`
+    : '';
+
+  const prompt = `You are an opinionated, well-travelled city expert writing for a savvy traveller staying in ${neighbourhood}, ${city}.${vibeContext}
 
 Create the definitive "8 things you must do in ${city}" list — the kind a brilliant local friend would give you. This means:
 - The truly iconic sights that define the city (even if obvious — if Big Ben defines London, include it; if Sagrada Família defines Barcelona, it leads the list)
