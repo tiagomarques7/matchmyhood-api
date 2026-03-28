@@ -521,8 +521,26 @@ async function enrichMatch(match, destCity, intent) {
 
 // ── PROMPTS ─────────────────────────────────────────────────────────────────
 function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent, excludeHoods) {
-  const vibeContext = safeVibes
-    ? `\nThe traveller especially values: ${safeVibes}. Weight these heavily.`
+  // Build rich vibe context — each vibe gets specific guidance for neighbourhood matching
+  const VIBE_GUIDANCE = {
+    "Wine & Nightlife":       "Prioritise neighbourhoods with a vibrant bar scene, nightclubs, late-night energy. Mention specific bar streets or nightlife clusters in whyItMatches.",
+    "Food & Restaurants":     "Prioritise neighbourhoods with exceptional food scenes — markets, acclaimed restaurants, diverse cuisines. Mention specific foodie credentials.",
+    "Shopping & Boutiques":   "Prioritise neighbourhoods with independent boutiques, design shops, markets. Flag any famous shopping streets.",
+    "Parks & Outdoors":       "Prioritise neighbourhoods near parks, waterfronts, green spaces. Mention walkability and outdoor lifestyle.",
+    "Culture & Architecture": "Prioritise neighbourhoods rich in museums, galleries, historic architecture, cultural institutions.",
+    "Music & Arts":           "Prioritise neighbourhoods with live music venues, art galleries, creative communities, street art.",
+    "Cafés & Chill":          "Prioritise neighbourhoods with excellent café culture, relaxed pace, good spots to work or read.",
+    "Family Friendly":        "Prioritise neighbourhoods with good schools, parks, playgrounds, family-oriented amenities, safe streets.",
+    "Digital Nomad":          "Prioritise neighbourhoods with excellent cafés/coworking, fast internet reputation, international community.",
+    "Off the Beaten Track":   "Avoid the obvious tourist or expat neighbourhoods. Pick something genuinely local, emerging, or alternative — the kind of place most visitors never find. Reflect this boldly in tagline and whyItMatches.",
+    "LGBT+ Friendly":         "Prioritise neighbourhoods known for LGBT+ acceptance, community, venues and events. Mention proximity to any known gay villages or LGBT+ hubs. Flag safety for LGBT+ travellers in safetyRating context.",
+    "Senior Friendly":        "Prioritise neighbourhoods with flat terrain, excellent public transport, good healthcare access, quieter streets, daytime café culture. Flag any hills or accessibility challenges in cons.",
+    "Accessible":             "Prioritise neighbourhoods with flat terrain, good pavement quality, accessible public transport. Flag hills, cobblestones, steps or poor accessibility in cons. Be honest about challenges.",
+  };
+  const vibeList = safeVibes ? safeVibes.split(", ").filter(Boolean) : [];
+  const vibeGuidance = vibeList.map(v => VIBE_GUIDANCE[v]).filter(Boolean).join(" ");
+  const vibeContext = vibeList.length
+    ? "\nThe traveller has selected these preferences: " + safeVibes + ".\n" + vibeGuidance + "\nReflect these preferences throughout the response \u2014 in tagline, whyItMatches, pros, cons, bestFor and top3ThingsToDo."
     : "";
   const excludeContext = Array.isArray(excludeHoods) && excludeHoods.length > 0
     ? `\nDo NOT suggest any of these neighbourhoods — the user has already seen them: ${excludeHoods.map(h => `"${h}"`).join(", ")}. Suggest a genuinely different option.`
