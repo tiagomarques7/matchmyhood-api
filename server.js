@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_KEY || "AIzaSyAvKFFCzz8O3-y_vRTdMdrbl16bHMgpXCA";
-const FSQ_API_KEY = process.env.FSQ_API_KEY || "1VQIVEWZI4JUKFUIEICXNVA50IIZ5O5ICONVJFCSD1CXNS1N";
+const FSQ_API_KEY = process.env.FSQ_API_KEY || "VN1BGTILOWN0415SYI5KNW5I4XIVKXE2WUNH2JDWIUYLKSZI";
 
 // ── CLAUDE API ──────────────────────────────────────────────────────────────
 function callClaude(prompt) {
@@ -411,6 +411,7 @@ function fetchAllAmenities(lat, lng, city, polygon) {
         countFoursquare(lat, lng, FSQ_CATEGORIES.pharmacies, 700),
       ]).then(([yRestaurants, yBars, yCafes, yGyms, ySupermarkets, yPharmacies]) => {
         const best = (osm, yelp) => Math.max(Number(osm) || 0, Number(yelp) || 0);
+        console.log(`Foursquare counts — restaurants:${yRestaurants} bars:${yBars} cafes:${yCafes} gyms:${yGyms} supermarkets:${ySupermarkets} pharmacies:${yPharmacies}`);
         resolve({
           pharmacies:   best(pharmacies, yPharmacies),
           supermarkets: best(supermarkets, ySupermarkets),
