@@ -56,6 +56,7 @@ function callClaude(prompt) {
 // Valid primary types per category — used to filter out misclassified venues
 const VALID_RESTAURANT_TYPES = new Set(['restaurant','meal_takeaway','meal_delivery','food','cafe','bakery','bar','pub']);
 const VALID_BAR_TYPES        = new Set(['bar','pub','night_club','wine_bar','liquor_store','restaurant','cafe']);
+const VALID_CAFE_TYPES        = new Set(['cafe','coffee_shop','bakery','breakfast_restaurant']);
 
 function searchGoogle(lat, lng, types, limit = 3) {
   // Fetch 10 candidates, sort by rating descending, filter by primaryType, return top 'limit'
@@ -394,17 +395,20 @@ function formatVenue(venue, city, hoodName) {
 async function enrichMatchFast(match, destCity) {
   if (!match.lat || !match.lng) return match;
   try {
-    const [restaurants, bars] = await Promise.all([
+    const [restaurants, bars, cafes] = await Promise.all([
       searchGoogle(match.lat, match.lng, ["restaurant"], 3),
-      searchGoogle(match.lat, match.lng, ["bar", "wine_bar"], 3),
+      searchGoogle(match.lat, match.lng, ["bar", "wine_bar", "pub"], 3),
+      searchGoogle(match.lat, match.lng, ["cafe"], 3),
     ]);
     match.top3Restaurants = restaurants.length > 0 ? restaurants.map(v => formatVenue(v, destCity, match.name)) : [];
-    match.top3WineBars = bars.length > 0 ? bars.map(v => formatVenue(v, destCity, match.name)) : [];
-    console.log(`Google enrichment for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars`);
+    match.top3Bars = bars.length > 0 ? bars.map(v => formatVenue(v, destCity, match.name)) : [];
+    match.top3Cafes = cafes.length > 0 ? cafes.map(v => formatVenue(v, destCity, match.name)) : [];
+    console.log(`Google enrichment for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars, ${cafes.length} cafes`);
   } catch (err) {
     console.error("Fast enrichment error for", match.name, err.message);
     match.top3Restaurants = match.top3Restaurants || [];
-    match.top3WineBars = match.top3WineBars || [];
+    match.top3Bars = match.top3Bars || [];
+    match.top3Cafes = match.top3Cafes || [];
   }
   return match;
 }
@@ -487,13 +491,15 @@ async function enrichMatch(match, destCity, intent) {
   if (!match.lat || !match.lng) return match;
 
   try {
-    const [restaurants, bars] = await Promise.all([
+    const [restaurants, bars, cafes] = await Promise.all([
       searchGoogle(match.lat, match.lng, ["restaurant"], 3),
-      searchGoogle(match.lat, match.lng, ["bar", "wine_bar"], 3),
+      searchGoogle(match.lat, match.lng, ["bar", "wine_bar", "pub"], 3),
+      searchGoogle(match.lat, match.lng, ["cafe"], 3),
     ]);
 
     if (restaurants.length > 0) match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
-    if (bars.length > 0) match.top3WineBars = bars.map(v => formatVenue(v, destCity, match.name));
+    if (bars.length > 0) match.top3Bars = bars.map(v => formatVenue(v, destCity, match.name));
+    if (cafes.length > 0) match.top3Cafes = cafes.map(v => formatVenue(v, destCity, match.name));
 
     // ONE batched Overpass call for all amenities + transit
     const amenityData = await fetchAllAmenities(match.lat, match.lng, destCity);
