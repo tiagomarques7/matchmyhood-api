@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_KEY || "AIzaSyAvKFFCzz8O3-y_vRTdMdrbl16bHMgpXCA";
-const FSQ_API_KEY = process.env.FSQ_API_KEY || "VN1BGTILOWN0415SYI5KNW5I4XIVKXE2WUNH2JDWIUYLKSZI";
+const HERE_API_KEY = process.env.HERE_API_KEY || "USB-MLS9zHPgoHI_Z9OfkHuCpUhRcRoE9Cw_0VKv0jQ";
 
 // ── CLAUDE API ──────────────────────────────────────────────────────────────
 function callClaude(prompt) {
@@ -140,28 +140,25 @@ function countGoogle(lat, lng, types, radius = 600) {
   });
 }
 
-// ── FOURSQUARE API — venue counts for hybrid best-of-both approach ───────────
+// ── HERE PLACES API — venue counts for hybrid best-of-both approach ──────────
 // Returns count of venues matching category near lat/lng
-// Uses Foursquare Places API v3 with category IDs
-function countFoursquare(lat, lng, categoryIds, radius = 700) {
+// HERE Browse API: up to 100 results, excellent global coverage
+function countHere(lat, lng, categories, radius = 700) {
   return new Promise((resolve) => {
-    if (!FSQ_API_KEY) return resolve(0);
-    const params = `ll=${lat},${lng}&categories=${categoryIds}&radius=${radius}&limit=50&fields=fsq_id`;
+    if (!HERE_API_KEY) return resolve(0);
+    const params = `at=${lat},${lng}&categories=${categories}&in=circle:${lat},${lng};r=${radius}&limit=100&apiKey=${HERE_API_KEY}`;
     const req = https.request({
-      hostname: 'api.foursquare.com',
-      path: `/v3/places/search?${params}`,
+      hostname: 'browse.search.hereapi.com',
+      path: `/v1/browse?${params}`,
       method: 'GET',
-      headers: {
-        'Authorization': FSQ_API_KEY,
-        'Accept': 'application/json',
-      },
+      headers: { 'Accept': 'application/json' },
     }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          const count = (parsed.results || []).length;
+          const count = (parsed.items || []).length;
           resolve(count);
         } catch { resolve(0); }
       });
@@ -172,15 +169,15 @@ function countFoursquare(lat, lng, categoryIds, radius = 700) {
   });
 }
 
-// Foursquare category IDs for our amenity types
-// See: https://docs.foursquare.com/data-products/docs/categories
-const FSQ_CATEGORIES = {
-  restaurants:  '13065',        // Dining and Drinking > Restaurant
-  bars:         '13003,13059',  // Bar + Pub
-  cafes:        '13035',        // Coffee Shop
-  gyms:         '18021',        // Gym / Fitness Center
-  supermarkets: '17069,17070',  // Grocery Store + Supermarket
-  pharmacies:   '15014',        // Pharmacy
+// HERE category IDs for our amenity types
+// See: https://developer.here.com/documentation/geocoding-search-api/dev_guide/topics/place-categories/places-category-system-full.html
+const HERE_CATEGORIES = {
+  restaurants:  '100-1000-0000', // Restaurant
+  bars:         '200-2000-0011', // Bar or Pub
+  cafes:        '100-1100-0010', // Coffee Shop
+  gyms:         '400-4300-0278', // Fitness, Health & Gyms
+  supermarkets: '600-6300-0066', // Grocery/Supermarket
+  pharmacies:   '800-8000-0164', // Pharmacy
 };
 
 // ── OVERPASS API — single batched query per neighbourhood ──────────────────
@@ -403,12 +400,12 @@ function fetchAllAmenities(lat, lng, city, polygon) {
 
       // Hybrid counts — run Yelp in parallel, take best of OSM vs Yelp
       Promise.all([
-        countFoursquare(lat, lng, FSQ_CATEGORIES.restaurants, 600),
-        countFoursquare(lat, lng, FSQ_CATEGORIES.bars, 600),
-        countFoursquare(lat, lng, FSQ_CATEGORIES.cafes, 600),
-        countFoursquare(lat, lng, FSQ_CATEGORIES.gyms, 700),
-        countFoursquare(lat, lng, FSQ_CATEGORIES.supermarkets, 700),
-        countFoursquare(lat, lng, FSQ_CATEGORIES.pharmacies, 700),
+        countHere(lat, lng, HERE_CATEGORIES.restaurants, 600),
+        countHere(lat, lng, HERE_CATEGORIES.bars, 600),
+        countHere(lat, lng, HERE_CATEGORIES.cafes, 600),
+        countHere(lat, lng, HERE_CATEGORIES.gyms, 700),
+        countHere(lat, lng, HERE_CATEGORIES.supermarkets, 700),
+        countHere(lat, lng, HERE_CATEGORIES.pharmacies, 700),
       ]).then(([yRestaurants, yBars, yCafes, yGyms, ySupermarkets, yPharmacies]) => {
         const best = (osm, yelp) => Math.max(Number(osm) || 0, Number(yelp) || 0);
         console.log(`Foursquare counts — restaurants:${yRestaurants} bars:${yBars} cafes:${yCafes} gyms:${yGyms} supermarkets:${ySupermarkets} pharmacies:${yPharmacies}`);
@@ -426,7 +423,7 @@ function fetchAllAmenities(lat, lng, city, polygon) {
           supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords
         });
       }).catch(() => {
-        // Foursquare failed — fall back to pure OSM counts
+        // HERE failed — fall back to pure OSM counts
         resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums,
                   cinemas, theatres, musicVenues, markets, hospitals,
                   restaurants, cafes, bars,
