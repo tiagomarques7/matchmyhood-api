@@ -791,7 +791,7 @@ app.post("/api/transitlines", async (req, res) => {
   const query = `
 [out:json][timeout:45];
 (
-  relation["route"~"subway|light_rail|tram"]["type"!="route_master"](${bbox});
+  relation["route"~"subway|light_rail|tram|rail"]["type"!="route_master"](${bbox});
 );
 out geom qt;`;
 
@@ -925,33 +925,43 @@ app.post("/api/landmarks", async (req, res) => {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  const prompt = `You are a world-class travel expert. A traveller is staying in ${neighbourhood}, ${city}.
+  const prompt = `You are an opinionated, well-travelled city expert writing for a savvy traveller staying in ${neighbourhood}, ${city}.
 
-List the top 8 must-visit landmarks and experiences in ${city} — a mix of iconic sights, cultural gems and one local secret. For each, calculate the realistic distance from ${neighbourhood} (centre coordinates: ${lat}, ${lng}) and suggest the best way to get there.
+Create the definitive "8 things you must do in ${city}" list — the kind a brilliant local friend would give you. This means:
+- The truly iconic sights that define the city (even if obvious — if Big Ben defines London, include it; if Sagrada Família defines Barcelona, it leads the list)
+- Unmissable experiences: world-famous markets, shows, food scenes, viewpoints, neighbourhoods to walk
+- Cultural gems: great museums, architectural wonders, historic quarters
+- One genuinely local secret that most tourists miss
+
+Be bold and specific. "See a West End show" is valid. "Walk Notting Hill on market day" is valid. "Eat at Noma" is valid. Don't be conservative — include what the city is genuinely famous for, not just safe picks.
+
+For each, give the realistic travel time from ${neighbourhood} (centre: ${lat}, ${lng}).
 
 Respond ONLY with a valid JSON array, no markdown:
 [
   {
     "name": "Sagrada Família",
-    "why": "Gaudí's breathtaking unfinished basilica — the symbol of Barcelona",
+    "why": "Gaudí's century-in-the-making basilica — the most visited site in Spain for good reason",
     "distanceKm": 2.1,
     "transport": "metro",
     "transportLine": "L5 (Sagrada Família stop)",
     "minutes": 10,
     "bookInAdvance": true,
-    "tip": "Book online — queues without tickets are brutal"
+    "tip": "Book online — queues without tickets can be 2 hours"
   }
 ]
 
 Rules:
-- distanceKm = straight-line distance in km from ${neighbourhood} centre, 1 decimal place
-- transport = one of: "walk", "metro", "bus", "tram", "taxi"
-- transportLine = specific line/route name if metro/tram/bus, else ""
-- minutes = realistic door-to-door travel time as integer
+- distanceKm = straight-line km from ${neighbourhood} centre, 1 decimal place
+- transport = one of: "walk", "metro", "bus", "tram", "train", "taxi"
+- transportLine = specific line/route if applicable, else ""
+- minutes = realistic door-to-door time as integer
 - bookInAdvance = true if tickets/reservations strongly recommended
-- tip = one short practical tip (max 12 words), or "" if none
-- Mix iconic (3-4) + cultural/local (3-4) + 1 hidden gem
-- Order by must-see priority, not distance
+- tip = one punchy practical tip (max 15 words), or "" if none
+- DO NOT omit the city's most iconic sight just because it's well-known
+- Include at least one unmissable experience (market, show, food scene, walk)
+- Include one genuinely local hidden gem as the last item
+- Order by must-see priority
 - 8 items exactly`;
 
   try {
