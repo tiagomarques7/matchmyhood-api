@@ -709,6 +709,7 @@ app.post("/api/amenities", async (req, res) => {
           stations:     amenityData.stationCount || 0,
         };
 
+
       } catch (e) {
         console.error("Amenity error for", m.name, e.message);
       }
@@ -905,6 +906,66 @@ out geom qt;`;
     return res.json({ lines: [] });
   }
 });
+
+// ── HAVERSINE ────────────────────────────────────────────────────────────────
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ── LANDMARKS ENDPOINT ───────────────────────────────────────────────────────
+// Claude generates top 8 must-visit landmarks/experiences for the city,
+// with transport advice and distance from the matched neighbourhood centre.
+app.post("/api/landmarks", async (req, res) => {
+  const { city, neighbourhood, lat, lng } = req.body;
+  if (!city || !neighbourhood || !lat || !lng) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const prompt = `You are a world-class travel expert. A traveller is staying in ${neighbourhood}, ${city}.
+
+List the top 8 must-visit landmarks and experiences in ${city} — a mix of iconic sights, cultural gems and one local secret. For each, calculate the realistic distance from ${neighbourhood} (centre coordinates: ${lat}, ${lng}) and suggest the best way to get there.
+
+Respond ONLY with a valid JSON array, no markdown:
+[
+  {
+    "name": "Sagrada Família",
+    "why": "Gaudí's breathtaking unfinished basilica — the symbol of Barcelona",
+    "distanceKm": 2.1,
+    "transport": "metro",
+    "transportLine": "L5 (Sagrada Família stop)",
+    "minutes": 10,
+    "bookInAdvance": true,
+    "tip": "Book online — queues without tickets are brutal"
+  }
+]
+
+Rules:
+- distanceKm = straight-line distance in km from ${neighbourhood} centre, 1 decimal place
+- transport = one of: "walk", "metro", "bus", "tram", "taxi"
+- transportLine = specific line/route name if metro/tram/bus, else ""
+- minutes = realistic door-to-door travel time as integer
+- bookInAdvance = true if tickets/reservations strongly recommended
+- tip = one short practical tip (max 12 words), or "" if none
+- Mix iconic (3-4) + cultural/local (3-4) + 1 hidden gem
+- Order by must-see priority, not distance
+- 8 items exactly`;
+
+  try {
+    const text = await callClaude(prompt);
+    const cleaned = text.replace(/\`\`\`json|\`\`\`/g, '').trim();
+    const landmarks = JSON.parse(cleaned);
+    if (!Array.isArray(landmarks)) throw new Error('Invalid format');
+    return res.json({ landmarks });
+  } catch (err) {
+    console.error('Landmarks error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
