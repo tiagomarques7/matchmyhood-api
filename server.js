@@ -53,11 +53,16 @@ function callClaude(prompt) {
 
 // ── GOOGLE PLACES API ────────────────────────────────────────────────────────
 // Search for top venues by type — used for top 3 recommendations
+// Valid primary types per category — used to filter out misclassified venues
+const VALID_RESTAURANT_TYPES = new Set(['restaurant','meal_takeaway','meal_delivery','food','cafe','bakery','bar','pub']);
+const VALID_BAR_TYPES        = new Set(['bar','pub','night_club','wine_bar','liquor_store','restaurant','cafe']);
+
 function searchGoogle(lat, lng, types, limit = 3) {
+  // Fetch 10 candidates, sort by rating descending, filter by primaryType, return top 'limit'
   return new Promise((resolve) => {
     const body = JSON.stringify({
       includedTypes: types,
-      maxResultCount: limit,
+      maxResultCount: 10,
       locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: 800 } },
       rankPreference: "POPULARITY"
     });
@@ -68,14 +73,22 @@ function searchGoogle(lat, lng, types, limit = 3) {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_PLACES_KEY,
-        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress,places.photos,places.currentOpeningHours,places.websiteUri",
+        "X-Goog-FieldMask": "places.displayName,places.rating,places.priceLevel,places.shortFormattedAddress,places.photos,places.currentOpeningHours,places.websiteUri,places.primaryType",
         "Content-Length": Buffer.byteLength(body),
       },
     }, (res) => {
       let data = "";
       res.on("data", chunk => data += chunk);
       res.on("end", () => {
-        try { resolve(JSON.parse(data).places || []); }
+        try {
+          let places = JSON.parse(data).places || [];
+          // Filter by primaryType to drop misclassified venues
+          const validTypes = types.some(t => ["bar","wine_bar"].includes(t)) ? VALID_BAR_TYPES : VALID_RESTAURANT_TYPES;
+          places = places.filter(p => !p.primaryType || validTypes.has(p.primaryType));
+          // Sort by rating descending, unrated venues go last
+          places.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+          resolve(places.slice(0, limit));
+        }
         catch { resolve([]); }
       });
       res.on("error", () => resolve([]));
@@ -328,6 +341,12 @@ function fetchAllAmenities(lat, lng, city, polygon) {
       const hasLL = c => c.lat && c.lon;
       const transitCoords     = els.filter(e => ALL_TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
         .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+      // Heavy transit only (metro/tram/train) — no bus stops — for map pins when not busOnly
+      const heavyTransitCoords = els.filter(e => HEAVY_TRANSIT_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+        .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,10);
+      // Bus stops only — for map pins when busOnly
+      const busCoords = els.filter(e => BUS_MATCHERS.some(fn => fn(e))).map(coord).filter(hasLL)
+        .filter((v,i,a) => a.findIndex(x => x.name===v.name)===i).slice(0,15);
       const supermarketCoords = els.filter(e => (tags.supermarkets||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
       const gymCoords         = els.filter(e => (tags.gyms||[]).some(([k,v]) => e.tags?.[k]===v)).map(coord).filter(hasLL).slice(0,10);
       const museumCoords      = els.filter(e => (tags.museums||[]).some(([k,v]) => e.tags?.[k]===v) && e.tags?.name).map(coord).filter(hasLL).slice(0,15);
@@ -340,7 +359,8 @@ function fetchAllAmenities(lat, lng, city, polygon) {
                 restaurants, cafes, bars,
                 nearestMetro: nearestMetro.slice(0, 4), stationCount,
                 nearestBus, busCount, busOnly,
-                transitCoords, supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
+                transitCoords, heavyTransitCoords, busCoords,
+                supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
     }
 
     try { processOverpass(rawData); }
@@ -364,7 +384,8 @@ function formatVenue(venue, city, hoodName) {
   const isOpen = venue.currentOpeningHours?.openNow;
   const openStatus = isOpen === true ? 'Open now' : isOpen === false ? 'Closed' : null;
   const website = venue.websiteUri || null;
-  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}`, photoUrl, openStatus, website };
+  const primaryType = venue.primaryType || null;
+  return { name, description, googleMapsQuery: `${name} ${hoodName} ${city}`, photoUrl, openStatus, website, primaryType };
 }
 
 // Fast enrichment — Google Places venues only, no slow Overpass calls
@@ -660,7 +681,9 @@ app.post("/api/amenities", async (req, res) => {
         if (amenityData.nearestBus?.length > 0)  m.nearestBus   = amenityData.nearestBus;
         if (amenityData.busCount)                  m.busCount     = amenityData.busCount;
         if (amenityData.busOnly)                   m.busOnly      = true;
-        if (amenityData.transitCoords?.length)     m.transitCoords     = amenityData.transitCoords;
+        if (amenityData.transitCoords?.length)      m.transitCoords      = amenityData.transitCoords;
+        if (amenityData.heavyTransitCoords?.length)  m.heavyTransitCoords = amenityData.heavyTransitCoords;
+        if (amenityData.busCoords?.length)           m.busCoords          = amenityData.busCoords;
         if (amenityData.supermarketCoords?.length)  m.supermarketCoords  = amenityData.supermarketCoords;
         if (amenityData.gymCoords?.length)          m.gymCoords          = amenityData.gymCoords;
         if (amenityData.museumCoords?.length)       m.museumCoords       = amenityData.museumCoords;
