@@ -230,13 +230,13 @@ function fetchAllAmenities(lat, lng, city, polygon) {
       parts.push(`nwr["${k}"="${v}"]${areaFilter(1500)};`);
     // Transit — always use radius (stations can be just outside hood boundary)
     parts.push(
-      `nwr["railway"="station"](around:800,${lat},${lng});`,
-      `node["railway"="subway_entrance"](around:800,${lat},${lng});`,
-      `node["railway"="tram_stop"](around:800,${lat},${lng});`,
-      `node["railway"="halt"](around:800,${lat},${lng});`,
-      `nwr["station"="subway"](around:800,${lat},${lng});`,
-      `node["public_transport"="stop_position"]["tram"="yes"](around:800,${lat},${lng});`,
-      `node["public_transport"="stop_position"]["subway"="yes"](around:800,${lat},${lng});`,
+      `nwr["railway"="station"](around:2000,${lat},${lng});`,
+      `node["railway"="subway_entrance"](around:2000,${lat},${lng});`,
+      `node["railway"="tram_stop"](around:2000,${lat},${lng});`,
+      `node["railway"="halt"](around:2000,${lat},${lng});`,
+      `nwr["station"="subway"](around:2000,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["tram"="yes"](around:2000,${lat},${lng});`,
+      `node["public_transport"="stop_position"]["subway"="yes"](around:2000,${lat},${lng});`,
       `node["highway"="bus_stop"](around:400,${lat},${lng});`,
       `node["public_transport"="stop_position"]["bus"="yes"](around:400,${lat},${lng});`,
       // Entertainment & culture
@@ -364,12 +364,30 @@ function fetchAllAmenities(lat, lng, city, polygon) {
       ];
       const ALL_TRANSIT_MATCHERS = [...HEAVY_TRANSIT_MATCHERS, ...BUS_MATCHERS];
 
-      const nearestMetro = els
+      // Heavy transit with distances — separate within 800m vs fallback 800-2000m
+      const allHeavyTransit = els
         .filter(e => HEAVY_TRANSIT_MATCHERS.some(fn => fn(e)) && e.tags?.name)
-        .map(e => e.tags.name)
-        .filter((v, i, a) => a.indexOf(v) === i);
+        .map(e => {
+          const eLat = e.lat ?? e.center?.lat;
+          const eLng = e.lon ?? e.center?.lon;
+          const dist = (eLat && eLng) ? haversine(lat, lng, eLat, eLng) : 999;
+          return { name: e.tags.name, dist };
+        })
+        .filter((v, i, a) => a.findIndex(x => x.name === v.name) === i); // deduplicate
 
-      const stationCount = nearestMetro.length; // total unique stations — used for amenity tile
+      const nearestMetro = allHeavyTransit
+        .filter(s => s.dist <= 0.8)
+        .map(s => s.name);
+
+      const stationCount = nearestMetro.length;
+
+      // For bus-only hoods: 2 closest metro/train stations within 2km with distances
+      const nearestMetroFallback = allHeavyTransit
+        .filter(s => s.dist > 0.8 && s.dist <= 2.0)
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 2)
+        .map(s => `${s.name}|${s.dist.toFixed(1)}km`)
+        .join(',');
 
       const busNamesAll = els
         .filter(e => BUS_MATCHERS.some(fn => fn(e)) && e.tags?.name)
@@ -417,7 +435,7 @@ function fetchAllAmenities(lat, lng, city, polygon) {
           restaurants:  best(restaurants, yRestaurants),
           cafes:        best(cafes, yCafes),
           bars:         best(bars, yBars),
-          nearestMetro: nearestMetro.slice(0, 4), stationCount,
+          nearestMetro: nearestMetro.slice(0, 4), stationCount, nearestMetroFallback,
           nearestBus, busCount, busOnly,
           transitCoords, heavyTransitCoords, busCoords,
           supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords
@@ -427,7 +445,7 @@ function fetchAllAmenities(lat, lng, city, polygon) {
         resolve({ pharmacies, supermarkets, parks, gyms, intlSchools, museums,
                   cinemas, theatres, musicVenues, markets, hospitals,
                   restaurants, cafes, bars,
-                  nearestMetro: nearestMetro.slice(0, 4), stationCount,
+                  nearestMetro: nearestMetro.slice(0, 4), stationCount, nearestMetroFallback,
                   nearestBus, busCount, busOnly,
                   transitCoords, heavyTransitCoords, busCoords,
                   supermarketCoords, gymCoords, museumCoords, cafeCoords, restaurantCoords, barCoords });
@@ -578,6 +596,7 @@ async function enrichMatch(match, destCity, intent) {
     if (amenityData.nearestBus?.length > 0) match.nearestBus = amenityData.nearestBus;
     if (amenityData.busCount)               match.busCount   = amenityData.busCount;
     if (amenityData.busOnly)                match.busOnly    = true;
+    if (amenityData.nearestMetroFallback)   match.nearestMetroFallback = amenityData.nearestMetroFallback;
 
     if (intent === "move") {
       match.amenities = {
