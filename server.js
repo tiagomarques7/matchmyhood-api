@@ -9,6 +9,162 @@ app.use(express.json({ limit: "10mb" }));
 const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_KEY || "AIzaSyAvKFFCzz8O3-y_vRTdMdrbl16bHMgpXCA";
 const HERE_API_KEY = process.env.HERE_API_KEY || "USB-MLS9zHPgoHI_Z9OfkHuCpUhRcRoE9Cw_0VKv0jQ";
 
+// ── SUPABASE CLIENT ──────────────────────────────────────────────────────────
+// Lazy-initialised — silently no-ops if env vars are absent (keeps existing
+// Claude flow fully intact until Supabase is configured on DO).
+let _supabaseClient = null;
+
+function getSupabase() {
+  if (_supabaseClient) return _supabaseClient;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return null;
+  try {
+    const { createClient } = require("@supabase/supabase-js");
+    _supabaseClient = createClient(url, key);
+    console.log("Supabase client initialised");
+    return _supabaseClient;
+  } catch (e) {
+    console.error("Supabase init failed (is @supabase/supabase-js installed?):", e.message);
+    return null;
+  }
+}
+
+// Normalise a neighbourhood name + city into a Supabase slug
+// "Príncipe Real" + "Lisbon" → "principe-real-lisbon"
+function toSlug(name, city) {
+  const clean = (str) =>
+    str
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")   // strip accents
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")        // strip punctuation
+      .trim()
+      .replace(/\s+/g, "-");
+  return `${clean(name)}-${clean(city)}`;
+}
+
+// Look up a matched neighbourhood in Supabase and return pre-curated venues.
+// Returns { restaurants, bars, cafes } arrays (same shape as enrichMatchFast output),
+// or null if the neighbourhood / city is not seeded.
+//
+// vibesStr: comma-separated string from the match request (e.g. "Food & Restaurants, Wine & Nightlife")
+// The function scores venues by vibe-tag overlap so the most relevant ones surface first.
+async function lookupSupabase(matchName, destCity, vibesStr) {
+  const sb = getSupabase();
+  if (!sb) return null;
+
+  const slug = toSlug(matchName, destCity);
+  console.log(`Supabase lookup: ${slug}`);
+
+  try {
+    // 1. Does this neighbourhood exist in Supabase?
+    const { data: hood, error: hoodErr } = await sb
+      .from("neighbourhoods")
+      .select("id, name, city")
+      .eq("slug", slug)
+      .single();
+
+    if (hoodErr || !hood) {
+      console.log(`Supabase miss: ${slug}`);
+      return null;
+    }
+
+    // 2. Fetch all venues for this neighbourhood, including their vibe tags
+    const { data: venues, error: venueErr } = await sb
+      .from("venues")
+      .select(`
+        id, name, type, description, price_level, website,
+        lat, lng, photo_url, notable,
+        venue_vibes(vibe_tag)
+      `)
+      .eq("neighbourhood_id", hood.id);
+
+    if (venueErr || !venues || venues.length === 0) {
+      console.log(`Supabase: no venues for ${slug}`);
+      return null;
+    }
+
+    // 3. Parse user vibes into lowercase keywords for overlap scoring
+    const userVibeKeywords = (vibesStr || "")
+      .split(",")
+      .map(v => v.trim().toLowerCase())
+      .filter(Boolean);
+
+    // Vibe-tag → keyword map for overlap matching
+    const VIBE_KEYWORDS = {
+      "food & restaurants": ["local-favourite", "unmissable", "michelin", "petiscos", "traditional", "contemporary", "seafood"],
+      "wine & nightlife":   ["wine-focused", "cocktails", "nightlife", "late-night", "fado", "live-music", "craft-beer"],
+      "cafés & chill":      ["brunch", "solo-friendly", "budget-friendly", "bohemian"],
+      "culture & architecture": ["historic-interior", "views", "design-interior"],
+      "off the beaten track":   ["hidden-gem", "local-favourite"],
+      "lgbt+ friendly":         ["nightlife", "bohemian", "contemporary"],
+    };
+
+    // Build relevant tag set from user's vibes
+    const relevantTags = new Set();
+    for (const kw of userVibeKeywords) {
+      for (const [vibeKey, tags] of Object.entries(VIBE_KEYWORDS)) {
+        if (vibeKey.includes(kw) || kw.includes(vibeKey.split(" ")[0])) {
+          tags.forEach(t => relevantTags.add(t));
+        }
+      }
+    }
+
+    // 4. Score + sort venues
+    const scored = venues.map(v => {
+      const tags = (v.venue_vibes || []).map(vt => vt.vibe_tag);
+      let score = 0;
+
+      // Unmissable always wins
+      if (tags.includes("unmissable")) score += 50;
+      if (v.notable)                   score += 20;
+
+      // Vibe overlap
+      for (const t of tags) {
+        if (relevantTags.has(t)) score += 10;
+      }
+
+      return { ...v, _score: score, _tags: tags };
+    });
+
+    // 5. Split by type, filter to venues with coordinates, take top picks
+    const byType = (type, limit) =>
+      scored
+        .filter(v => v.type === type && v.lat && v.lng)
+        .sort((a, b) => b._score - a._score)
+        .slice(0, limit);
+
+    const fmt = (v) => ({
+      name:            v.name,
+      description:     `${v.description || ""}${v.price_level ? " · " + v.price_level : ""}`.trim(),
+      googleMapsQuery: `${v.name} ${hood.name} ${hood.city}`,
+      photoUrl:        v.photo_url || null,
+      openStatus:      null,
+      website:         v.website || null,
+      primaryType:     v.type,
+      lat:             v.lat,
+      lng:             v.lng,
+    });
+
+    const restaurants = byType("restaurant", 5).map(fmt);
+    const bars        = byType("bar",        4).map(fmt);
+    const cafes       = byType("cafe",       3).map(fmt);
+
+    if (restaurants.length === 0 && bars.length === 0 && cafes.length === 0) {
+      console.log(`Supabase: venues exist for ${slug} but none have coordinates yet`);
+      return null;
+    }
+
+    console.log(`Supabase HIT: ${hood.name} → ${restaurants.length}R ${bars.length}B ${cafes.length}C`);
+    return { restaurants, bars, cafes };
+
+  } catch (err) {
+    console.error("Supabase lookup error:", err.message);
+    return null;  // always fall through to Claude
+  }
+}
+
 // ── CLAUDE API ──────────────────────────────────────────────────────────────
 function callClaude(prompt) {
   return new Promise((resolve, reject) => {
@@ -511,9 +667,21 @@ function geocodeVenue(name, neighbourhood, city) {
   });
 }
 
-async function enrichMatchFast(match, destCity) {
+async function enrichMatchFast(match, destCity, vibesStr) {
   if (!match.lat || !match.lng) return match;
   try {
+
+    // ── Step 0: Try Supabase pre-curated venues first ──
+    // If the matched neighbourhood is seeded, skip Claude venue curation entirely.
+    // Falls back transparently to Claude if miss or if Supabase is unavailable.
+    const sbVenues = await lookupSupabase(match.name, destCity, vibesStr || "");
+    if (sbVenues) {
+      match.top3Restaurants = sbVenues.restaurants;
+      match.top3Bars        = sbVenues.bars;
+      match.top3Cafes       = sbVenues.cafes;
+      match._venueSource    = "supabase";
+      return match;
+    }
 
     // ── Step 1: Claude curates the best venues from local knowledge ──
     const prompt = `You are an opinionated local expert for ${match.name}, ${destCity}.
@@ -875,9 +1043,9 @@ app.post("/api/match", async (req, res) => {
       throw new Error("Invalid response format");
     }
 
-    // Fast enrichment — single match (Foursquare only)
+    // Fast enrichment — single match; passes vibes so Supabase lookup can score by overlap
     matches = await Promise.all(
-      matches.map(m => enrichMatchFast(m, safedestCity))
+      matches.map(m => enrichMatchFast(m, safedestCity, safeVibes))
     );
 
     return res.json({ matches, intent: currentIntent });
