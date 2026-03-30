@@ -480,18 +480,130 @@ function formatVenue(venue, city, hoodName) {
 }
 
 // Fast enrichment — Google Places venues only, no slow Overpass calls
+// ── GOOGLE GEOCODING — get coordinates for a named venue ─────────────────────
+function geocodeVenue(name, neighbourhood, city) {
+  return new Promise((resolve) => {
+    const address = encodeURIComponent(`${name}, ${neighbourhood}, ${city}`);
+    const req = https.request({
+      hostname: 'maps.googleapis.com',
+      path: `/maps/api/geocode/json?address=${address}&key=${GOOGLE_PLACES_KEY}`,
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const result = parsed.results?.[0];
+          if (!result) return resolve(null);
+          resolve({
+            lat: result.geometry.location.lat,
+            lng: result.geometry.location.lng,
+            address: result.formatted_address,
+          });
+        } catch { resolve(null); }
+      });
+      res.on('error', () => resolve(null));
+    });
+    req.on('error', () => resolve(null));
+    req.end();
+  });
+}
+
 async function enrichMatchFast(match, destCity) {
   if (!match.lat || !match.lng) return match;
   try {
-    const [restaurants, bars, cafes] = await Promise.all([
-      searchGoogle(match.lat, match.lng, ["restaurant"], 3),
-      searchGoogle(match.lat, match.lng, ["bar", "wine_bar", "pub"], 3),
-      searchGoogle(match.lat, match.lng, ["cafe"], 3),
-    ]);
-    match.top3Restaurants = restaurants.length > 0 ? restaurants.map(v => formatVenue(v, destCity, match.name)) : [];
-    match.top3Bars = bars.length > 0 ? bars.map(v => formatVenue(v, destCity, match.name)) : [];
-    match.top3Cafes = cafes.length > 0 ? cafes.map(v => formatVenue(v, destCity, match.name)) : [];
-    console.log(`Google enrichment for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars, ${cafes.length} cafes`);
+
+    // ── Step 1: Claude curates the best venues from local knowledge ──
+    const prompt = `You are an opinionated local expert for ${match.name}, ${destCity}.
+
+Name the most iconic, neighbourhood-defining spots — the kind a well-travelled friend who lives there would recommend. No chains, no tourist traps, nothing generic. Only places that genuinely define the character of ${match.name}.
+
+Return ONLY valid JSON, no markdown:
+{
+  "restaurants": [
+    {"name": "Bodega de la Ardosa", "description": "Standing-room vermouth bar, locals only since 1892", "priceLevel": "€"},
+    {"name": "...", "description": "...", "priceLevel": "€€"}
+  ],
+  "bars": [
+    {"name": "...", "description": "...", "priceLevel": "€"}
+  ],
+  "cafes": [
+    {"name": "...", "description": "...", "priceLevel": "€"}
+  ]
+}
+
+Rules:
+- restaurants: exactly 5 (or fewer if genuinely fewer iconic options exist)
+- bars: exactly 4
+- cafes: exactly 3
+- description: one punchy line, max 10 words, what makes it special
+- priceLevel: €, €€, or €€€
+- Only include venues you are confident exist in ${match.name}, ${destCity}`;
+
+    let claudeVenues = null;
+    try {
+      const text = await callClaude(prompt);
+      const cleaned = text.replace(/```json|```/g, '').trim();
+      claudeVenues = JSON.parse(cleaned);
+    } catch(e) {
+      console.error(`Claude curation failed for ${match.name}:`, e.message);
+    }
+
+    // ── Step 2: Geocode each venue via Google to get coordinates ──
+    const geocodeAll = async (venues, category) => {
+      if (!venues?.length) return [];
+      const results = await Promise.all(
+        venues.map(async (v) => {
+          const geo = await geocodeVenue(v.name, match.name, destCity);
+          if (!geo) {
+            console.log(`Geocode miss: ${v.name} in ${match.name}`);
+            return null;
+          }
+          const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(v.name + ', ' + match.name + ', ' + destCity)}`;
+          return {
+            name: v.name,
+            description: `${v.description}${v.priceLevel ? ' · ' + v.priceLevel : ''}`,
+            googleMapsQuery: `${v.name} ${match.name} ${destCity}`,
+            photoUrl: null,
+            openStatus: null,
+            website: null,
+            primaryType: category,
+            lat: geo.lat,
+            lng: geo.lng,
+            mapsUrl,
+          };
+        })
+      );
+      return results.filter(Boolean);
+    };
+
+    if (claudeVenues) {
+      const [restaurants, bars, cafes] = await Promise.all([
+        geocodeAll(claudeVenues.restaurants, 'restaurant'),
+        geocodeAll(claudeVenues.bars,        'bar'),
+        geocodeAll(claudeVenues.cafes,       'cafe'),
+      ]);
+
+      match.top3Restaurants = restaurants;
+      match.top3Bars        = bars;
+      match.top3Cafes       = cafes;
+
+      console.log(`Claude-curated picks for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars, ${cafes.length} cafes`);
+    } else {
+      // ── Fallback: Google popularity if Claude fails ──
+      const [restaurants, bars, cafes] = await Promise.all([
+        searchGoogle(match.lat, match.lng, ["restaurant"], 5),
+        searchGoogle(match.lat, match.lng, ["bar", "wine_bar", "pub"], 4),
+        searchGoogle(match.lat, match.lng, ["cafe"], 3),
+      ]);
+      match.top3Restaurants = restaurants.map(v => formatVenue(v, destCity, match.name));
+      match.top3Bars        = bars.map(v => formatVenue(v, destCity, match.name));
+      match.top3Cafes       = cafes.map(v => formatVenue(v, destCity, match.name));
+      console.log(`Fallback Google picks for ${match.name}: ${restaurants.length} restaurants, ${bars.length} bars, ${cafes.length} cafes`);
+    }
+
   } catch (err) {
     console.error("Fast enrichment error for", match.name, err.message);
     match.top3Restaurants = match.top3Restaurants || [];
