@@ -99,8 +99,8 @@ async function patchVenue(id, updates) {
 function findPlace(venueName, neighbourhood, city) {
   return new Promise((resolve) => {
     const input = encodeURIComponent(`${venueName}, ${neighbourhood}, ${city}`);
-    const fields = "place_id,geometry,name,photos,website";
-    const path = `/maps/api/place/findplacefromtext/json?input=${input}&inputtype=textquery&fields=${encodeURIComponent(fields)}&key=${GOOGLE_API_KEY}`;
+    const fields = "place_id,geometry,name";  // photos/website need Contact tier billing — skip for now
+    const path = `/maps/api/place/findplacefromtext/json?input=${input}&inputtype=textquery&fields=${fields}&key=${GOOGLE_API_KEY}`;
 
     const req = https.request({
       hostname: "maps.googleapis.com",
