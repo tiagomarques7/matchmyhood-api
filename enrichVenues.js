@@ -141,6 +141,15 @@ function buildPhotoUrl(photoRef) {
   return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=600&photoreference=${photoRef}&key=${GOOGLE_API_KEY}`;
 }
 
+// ── CLEAN VENUE NAME ────────────────────────────────────────────────────────
+// Strip internal seed suffixes before passing to Google Places
+function cleanName(name) {
+  return name
+    .replace(/\s+CH$/i, "")       // " CH" neighbourhood code
+    .replace(/\s+main$/i, "")     // " main" suffix
+    .trim();
+}
+
 // ── SLEEP ────────────────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -186,7 +195,8 @@ async function main() {
     }
 
     try {
-      const result = await findPlace(v.name, hoodName, city);
+      const searchName = cleanName(v.name);
+      const result = await findPlace(searchName, hoodName, city);
 
       if (!result || !result.lat || !result.lng) {
         console.log("❌ not found");
