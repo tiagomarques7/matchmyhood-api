@@ -523,14 +523,14 @@ Name the most iconic, neighbourhood-defining spots — the kind a well-travelled
 Return ONLY valid JSON, no markdown:
 {
   "restaurants": [
-    {"name": "Bodega de la Ardosa", "description": "Standing-room vermouth bar, locals only since 1892", "priceLevel": "€"},
-    {"name": "...", "description": "...", "priceLevel": "€€"}
+    {"name": "Bodega de la Ardosa", "description": "Standing-room vermouth bar, locals only since 1892", "priceLevel": "€", "website": "https://www.bodegadelaardosa.com"},
+    {"name": "...", "description": "...", "priceLevel": "€€", "website": ""}
   ],
   "bars": [
-    {"name": "...", "description": "...", "priceLevel": "€"}
+    {"name": "...", "description": "...", "priceLevel": "€", "website": ""}
   ],
   "cafes": [
-    {"name": "...", "description": "...", "priceLevel": "€"}
+    {"name": "...", "description": "...", "priceLevel": "€", "website": ""}
   ]
 }
 
@@ -540,6 +540,7 @@ Rules:
 - cafes: exactly 3
 - description: one punchy line, max 10 words, what makes it special
 - priceLevel: €, €€, or €€€
+- website: include only if you are confident it is correct and current — otherwise leave as empty string ""
 - Only include venues you are confident exist in ${match.name}, ${destCity}`;
 
     let claudeVenues = null;
@@ -568,7 +569,7 @@ Rules:
             googleMapsQuery: `${v.name} ${match.name} ${destCity}`,
             photoUrl: null,
             openStatus: null,
-            website: null,
+            website: v.website || null,
             primaryType: category,
             lat: geo.lat,
             lng: geo.lng,
