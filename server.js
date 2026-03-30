@@ -796,6 +796,7 @@ app.post("/api/amenities", async (req, res) => {
         if (amenityData.nearestBus?.length > 0)  m.nearestBus   = amenityData.nearestBus;
         if (amenityData.busCount)                  m.busCount     = amenityData.busCount;
         if (amenityData.busOnly)                   m.busOnly      = true;
+        if (amenityData.nearestMetroFallback)      m.nearestMetroFallback = amenityData.nearestMetroFallback;
         if (amenityData.transitCoords?.length)      m.transitCoords      = amenityData.transitCoords;
         if (amenityData.heavyTransitCoords?.length)  m.heavyTransitCoords = amenityData.heavyTransitCoords;
         if (amenityData.busCoords?.length)           m.busCoords          = amenityData.busCoords;
