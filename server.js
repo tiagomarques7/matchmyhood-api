@@ -156,7 +156,7 @@ async function lookupSupabase(matchName, destCity, vibesStr) {
 
     const fmt = (v) => ({
       name:            v.name,
-      description:     `${v.description || ""}${v.price_level ? " · " + v.price_level : ""}`.trim(),
+      description:     `${v.description || ""}${v.price_level ? " · " + ["","€","€€","€€€"][v.price_level] || "" : ""}`.trim(),
       googleMapsQuery: `${v.name} ${hood.name} ${hood.city}`,
       photoUrl:        proxyPhoto(v.photo_url),
       openStatus:      null,
@@ -164,6 +164,7 @@ async function lookupSupabase(matchName, destCity, vibesStr) {
       primaryType:     v.type,
       lat:             v.lat,
       lng:             v.lng,
+      tags:            (v.venue_vibes || []).map(vt => vt.vibe_tag),
     });
 
     const restaurants = byType("restaurant", 5).map(fmt);
