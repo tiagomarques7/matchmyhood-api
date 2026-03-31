@@ -1380,6 +1380,42 @@ Rules:
 });
 
 
+// ── HOOD POLYGON ENDPOINT ───────────────────────────────────────────────────
+// Returns the neighbourhood polygon from Supabase as GeoJSON Feature.
+// Called by the frontend map instead of Nominatim for seeded cities.
+app.get("/api/hood-polygon", async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  const { name, city } = req.query;
+  if (!name || !city) return res.status(400).json({ error: "Missing name or city" });
+
+  const sb = getSupabase();
+  if (!sb) return res.status(503).json({ error: "Supabase not configured" });
+
+  try {
+    const { data, error } = await sb
+      .from("neighbourhoods")
+      .select("name, city, lat, lng, ST_AsGeoJSON(geom) as geom_json")
+      .eq("city", city)
+      .ilike("name", name)
+      .single();
+
+    if (error || !data || !data.geom_json) {
+      return res.status(404).json({ error: "Polygon not found" });
+    }
+
+    const geometry = JSON.parse(data.geom_json);
+    const feature = {
+      type: "Feature",
+      geometry,
+      properties: { name: data.name, city: data.city }
+    };
+    return res.json(feature);
+  } catch (err) {
+    console.error("Hood polygon error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 const PORT = process.env.PORT || 3000;
