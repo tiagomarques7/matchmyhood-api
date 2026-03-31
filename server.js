@@ -107,6 +107,7 @@ async function lookupSupabase(matchName, destCity, vibesStr) {
       "culture & architecture": ["historic-interior", "views", "design-interior"],
       "off the beaten track":   ["hidden-gem", "local-favourite"],
       "lgbt+ friendly":         ["nightlife", "bohemian", "contemporary"],
+      "affordable":             ["under-15", "budget-friendly", "local-favourite"],
     };
 
     // Build relevant tag set from user's vibes
@@ -935,6 +936,7 @@ function buildPrompt(safehomeHood, safehomeCity, safedestCity, safeVibes, intent
     "LGBT+ Friendly":         "Prioritise neighbourhoods known for LGBT+ acceptance, community, venues and events. Mention proximity to any known gay villages or LGBT+ hubs. Flag safety for LGBT+ travellers in safetyRating context.",
     "Senior Friendly":        "Prioritise neighbourhoods with flat terrain, excellent public transport, good healthcare access, quieter streets, daytime café culture. Flag any hills or accessibility challenges in cons.",
     "Accessible":             "Prioritise neighbourhoods with flat terrain, good pavement quality, accessible public transport. Flag hills, cobblestones, steps or poor accessibility in cons. Be honest about challenges.",
+    "Affordable":             "Prioritise neighbourhoods with budget-friendly options — cheap eats, affordable bars, lower cost of living. Mention specific affordable venues and avoid recommending expensive areas.",
   };
   const vibeList = safeVibes ? safeVibes.split(", ").filter(Boolean) : [];
   const vibeGuidance = vibeList.map(v => VIBE_GUIDANCE[v]).filter(Boolean).join(" ");
