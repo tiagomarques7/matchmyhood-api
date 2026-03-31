@@ -8,6 +8,8 @@
  *   node enrichVenues.js --dry-run                # log only, no writes
  *   node enrichVenues.js --hood=chiado-lisbon     # one neighbourhood only
  *   node enrichVenues.js --dry-run --hood=chiado-lisbon
+ *   node enrichVenues.js --photos                    # 2nd pass: fetch website+photo (~$3.50)
+ *   node enrichVenues.js --photos --hood=chiado-lisbon
  *
  * Required env vars:
  *   SUPABASE_URL          https://bmhiyvrdklxswkfixydk.supabase.co
@@ -19,11 +21,13 @@ const https = require("https");
 
 // ── CLI FLAGS ────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-const DRY_RUN  = args.includes("--dry-run");
-const HOOD_ARG = (args.find(a => a.startsWith("--hood=")) || "").replace("--hood=", "") || null;
+const DRY_RUN   = args.includes("--dry-run");
+const HOOD_ARG  = (args.find(a => a.startsWith("--hood=")) || "").replace("--hood=", "") || null;
+const PHOTOS_MODE = args.includes("--photos"); // second pass: fetch website+photo for already-geocoded venues
 
-if (DRY_RUN)  console.log("🟡 DRY RUN — no writes will happen");
-if (HOOD_ARG) console.log(`📍 Hood filter: ${HOOD_ARG}`);
+if (DRY_RUN)     console.log("🟡 DRY RUN — no writes will happen");
+if (HOOD_ARG)    console.log(`📍 Hood filter: ${HOOD_ARG}`);
+if (PHOTOS_MODE) console.log("📷 PHOTOS MODE — fetching website + photo_url for geocoded venues");
 
 // ── ENV ──────────────────────────────────────────────────────────────────────
 const SUPABASE_URL         = process.env.SUPABASE_URL;
@@ -79,7 +83,7 @@ function supabaseRequest(method, path, body) {
 
 // Fetch all venues (optionally filtered by neighbourhood slug)
 async function fetchVenues(hoodSlug) {
-  let path = "/venues?select=id,name,type,neighbourhood_id,website,lat,lng,place_id,neighbourhoods(slug,name,city)";
+  let path = "/venues?select=id,name,type,neighbourhood_id,website,photo_url,lat,lng,place_id,neighbourhoods(slug,name,city)";
   if (hoodSlug) {
     // Filter via join — use embedded filter syntax
     path = `/venues?select=id,name,type,neighbourhood_id,website,lat,lng,place_id,neighbourhoods!inner(slug,name,city)&neighbourhoods.slug=eq.${hoodSlug}`;
@@ -150,6 +154,38 @@ function cleanName(name) {
     .trim();
 }
 
+// ── GOOGLE PLACE DETAILS — fetch website + photo for a known place_id ─────────
+// Uses old Places API place/details endpoint
+// Cost: ~$0.017/request (Basic + Contact fields)
+function getPlaceDetails(place_id) {
+  return new Promise((resolve) => {
+    const fields = "website,photos";
+    const path = `/maps/api/place/details/json?place_id=${place_id}&fields=${fields}&key=${GOOGLE_API_KEY}`;
+    const req = https.request({
+      hostname: "maps.googleapis.com",
+      path,
+      method: "GET",
+      headers: { "Accept": "application/json" },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          const result = parsed.result || {};
+          resolve({
+            website:  result.website || null,
+            photoRef: result.photos?.[0]?.photo_reference || null,
+          });
+        } catch { resolve({ website: null, photoRef: null }); }
+      });
+      res.on("error", () => resolve({ website: null, photoRef: null }));
+    });
+    req.on("error", () => resolve({ website: null, photoRef: null }));
+    req.end();
+  });
+}
+
 // ── SLEEP ────────────────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -164,6 +200,53 @@ async function main() {
   }
 
   console.log(`✅ ${venues.length} venues loaded${HOOD_ARG ? ` (hood: ${HOOD_ARG})` : ""}`);
+
+  // PHOTOS MODE: fetch website + photo for venues that have place_id but missing website/photo
+  if (PHOTOS_MODE) {
+    const needsPhotos = venues.filter(v => v.place_id && (!v.website || !v.photo_url));
+    const alreadyDone = venues.length - needsPhotos.length;
+    console.log(`📷 ${needsPhotos.length} venues need website/photo, ${alreadyDone} already complete\n`);
+
+    if (needsPhotos.length === 0) {
+      console.log("✅ All venues already have website and photo. Nothing to do.");
+      return;
+    }
+
+    let success = 0, fail = 0, skipped = 0;
+    for (let i = 0; i < needsPhotos.length; i++) {
+      const v = needsPhotos[i];
+      const hood = v.neighbourhoods;
+      const prefix = `[${i + 1}/${needsPhotos.length}]`;
+      process.stdout.write(`${prefix} ${v.name} ... `);
+
+      if (DRY_RUN) { console.log("→ [dry-run skip]"); skipped++; continue; }
+
+      try {
+        const details = await getPlaceDetails(v.place_id);
+        const updates = {};
+        if (!v.website && details.website)   updates.website   = details.website;
+        if (!v.photo_url && details.photoRef) updates.photo_url = buildPhotoUrl(details.photoRef);
+
+        if (Object.keys(updates).length === 0) {
+          console.log("⏭  nothing new from Google");
+          skipped++;
+        } else {
+          await patchVenue(v.id, updates);
+          console.log(`✅${updates.website ? " 🌐" : ""}${updates.photo_url ? " 📷" : ""}`);
+          success++;
+        }
+      } catch (err) {
+        console.log(`💥 ${err.message}`);
+        fail++;
+      }
+      await sleep(120);
+    }
+
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`✅ Updated: ${success}  ❌ Failed: ${fail}  ⏭  Skipped: ${skipped}`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    return;
+  }
 
   // Filter: only process venues that are missing lat/lng OR missing place_id
   // (Skip already-enriched ones to allow re-runs safely)
