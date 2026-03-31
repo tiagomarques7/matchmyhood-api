@@ -22,7 +22,7 @@ const HOODS = [
   { name: "Bairro Alto",             osm: "Bairro Alto, Lisboa" },
   { name: "Príncipe Real",           osm: "Misericórdia, Lisboa" },
   { name: "Alfama",                  osm: "São Vicente, Lisboa" },
-  { name: "Mouraria",                osm: "Socorro, Lisboa" },
+  { name: "Mouraria",                osm: "Mouraria bairro Lisboa" },
   { name: "Intendente / Arroios",    osm: "Arroios, Lisboa" },
   { name: "Estrela",                 osm: "Estrela, Lisboa" },
   { name: "Campo de Ourique",        osm: "Campo de Ourique, Lisboa" },
