@@ -1388,26 +1388,29 @@ app.get("/api/hood-polygon", async (req, res) => {
   const { name, city } = req.query;
   if (!name || !city) return res.status(400).json({ error: "Missing name or city" });
 
-  const sb = getSupabase();
-  if (!sb) return res.status(503).json({ error: "Supabase not configured" });
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !supabaseKey) return res.status(503).json({ error: "Supabase not configured" });
 
   try {
-    const { data, error } = await sb
-      .from("neighbourhoods")
-      .select("name, city, lat, lng, ST_AsGeoJSON(geom) as geom_json")
-      .eq("city", city)
-      .ilike("name", name)
-      .single();
+    // PostgREST doesn't support ST_AsGeoJSON in .select() so we use a raw SQL call
+    // via the Supabase REST /rest/v1/rpc endpoint with a custom SQL function
+    const sb = getSupabase();
+    if (!sb) return res.status(503).json({ error: "Supabase not configured" });
 
-    if (error || !data || !data.geom_json) {
+    const { data: rows, error } = await sb
+      .rpc("get_hood_geojson", { p_name: name, p_city: city });
+
+    if (error || !rows || rows.length === 0 || !rows[0].geom_json) {
+      console.log(`Hood polygon not found: ${name}, ${city}`, error?.message);
       return res.status(404).json({ error: "Polygon not found" });
     }
 
-    const geometry = JSON.parse(data.geom_json);
+    const geometry = JSON.parse(rows[0].geom_json);
     const feature = {
       type: "Feature",
       geometry,
-      properties: { name: data.name, city: data.city }
+      properties: { name: rows[0].name, city: rows[0].city }
     };
     return res.json(feature);
   } catch (err) {
