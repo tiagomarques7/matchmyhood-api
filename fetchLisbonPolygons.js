@@ -18,12 +18,12 @@ const fs    = require("fs");
 // Each entry maps our Supabase name to the best OSM search strategy.
 // We try relation boundaries first (most accurate), then area fallback.
 const HOODS = [
-  { name: "Chiado",                  osm: "Chiado, Lisboa" },
+  { name: "Chiado",                  osm: "Santa Maria Maior, Lisboa" },
   { name: "Bairro Alto",             osm: "Bairro Alto, Lisboa" },
-  { name: "Príncipe Real",           osm: "Príncipe Real, Lisboa" },
-  { name: "Alfama",                  osm: "Alfama, Lisboa" },
-  { name: "Mouraria",                osm: "Mouraria, Lisboa" },
-  { name: "Intendente / Arroios",    osm: "Intendente, Lisboa" },
+  { name: "Príncipe Real",           osm: "Misericórdia, Lisboa" },
+  { name: "Alfama",                  osm: "São Vicente, Lisboa" },
+  { name: "Mouraria",                osm: "Socorro, Lisboa" },
+  { name: "Intendente / Arroios",    osm: "Arroios, Lisboa" },
   { name: "Estrela",                 osm: "Estrela, Lisboa" },
   { name: "Campo de Ourique",        osm: "Campo de Ourique, Lisboa" },
   { name: "Alcântara / LX Factory",  osm: "Alcântara, Lisboa" },
