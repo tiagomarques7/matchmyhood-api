@@ -978,7 +978,7 @@ Respond ONLY with a valid JSON array, no markdown:
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false},
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false}
     ],
-    "mustTry": "One iconic local food or drink and where",
+    "mustTry": "One iconic food, drink or experience specific to ${safedestHood} — not just the city",
     "unsplashQuery": "3-4 word photo query",
     "lat": 41.1234,
     "lng": -8.6789
@@ -1020,7 +1020,7 @@ Respond ONLY with a valid JSON array, no markdown:
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": true},
       {"name": "Name", "description": "Short line", "gygQuery": "experience ${safedestCity}", "isPaid": false}
     ],
-    "mustTry": "One iconic food or drink and where to get it",
+    "mustTry": "One iconic food, drink or experience you can only really get in ${safedestHood} — not just anywhere in the city",
     "unsplashQuery": "3-4 word photo query",
     "lat": 41.1234,
     "lng": -8.6789
