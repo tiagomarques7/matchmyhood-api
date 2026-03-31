@@ -143,11 +143,22 @@ async function lookupSupabase(matchName, destCity, vibesStr) {
         .sort((a, b) => b._score - a._score)
         .slice(0, limit);
 
+    // Rewrite Google Places photo URLs to go through our proxy
+    // Stored format: https://maps.googleapis.com/maps/api/place/photo?...&photoreference=REF&key=...
+    const proxyPhoto = (url) => {
+      if (!url) return null;
+      try {
+        const match = url.match(/photoreference=([^&]+)/);
+        if (match) return `https://api.matchmyhood.com/api/photo?ref=${match[1]}`;
+      } catch(e) {}
+      return null;
+    };
+
     const fmt = (v) => ({
       name:            v.name,
       description:     `${v.description || ""}${v.price_level ? " · " + v.price_level : ""}`.trim(),
       googleMapsQuery: `${v.name} ${hood.name} ${hood.city}`,
-      photoUrl:        v.photo_url || null,
+      photoUrl:        proxyPhoto(v.photo_url),
       openStatus:      null,
       website:         v.website || null,
       primaryType:     v.type,
@@ -1425,6 +1436,52 @@ app.get("/api/hood-polygon", async (req, res) => {
   } catch (err) {
     console.error("Hood polygon error:", err.message);
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PHOTO PROXY ─────────────────────────────────────────────────────────────
+// Proxies Google Places photos server-side to avoid 403 browser blocks.
+// Frontend uses /api/photo?ref=PHOTO_REFERENCE instead of direct Google URL.
+app.get("/api/photo", async (req, res) => {
+  const { ref } = req.query;
+  if (!ref) return res.status(400).send("Missing ref");
+
+  const googleUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=600&photoreference=${encodeURIComponent(ref)}&key=${GOOGLE_PLACES_KEY}`;
+
+  try {
+    await new Promise((resolve, reject) => {
+      const request = https.request(googleUrl, (googleRes) => {
+        // Google responds with 302 redirect — follow it
+        if (googleRes.statusCode === 302 || googleRes.statusCode === 301) {
+          const redirectUrl = googleRes.headers.location;
+          if (!redirectUrl) { res.status(502).send("No redirect"); return resolve(); }
+
+          https.get(redirectUrl, (imgRes) => {
+            res.setHeader("Content-Type", imgRes.headers["content-type"] || "image/jpeg");
+            res.setHeader("Cache-Control", "public, max-age=86400");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            imgRes.pipe(res);
+            imgRes.on("end", resolve);
+            imgRes.on("error", reject);
+          }).on("error", reject);
+        } else if (googleRes.statusCode === 200) {
+          res.setHeader("Content-Type", googleRes.headers["content-type"] || "image/jpeg");
+          res.setHeader("Cache-Control", "public, max-age=86400");
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          googleRes.pipe(res);
+          googleRes.on("end", resolve);
+          googleRes.on("error", reject);
+        } else {
+          res.status(googleRes.statusCode).send("Photo unavailable");
+          resolve();
+        }
+      });
+      request.on("error", reject);
+      request.end();
+    });
+  } catch (err) {
+    console.error("Photo proxy error:", err.message);
+    if (!res.headersSent) res.status(502).send("Photo proxy error");
   }
 });
 
