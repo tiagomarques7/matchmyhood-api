@@ -71,6 +71,14 @@ async function lookupSupabase(matchName, destCity, vibesStr) {
     }
 
     // 2. Fetch all venues for this neighbourhood, including their vibe tags
+    // Also fetch radius_m from neighbourhood
+    const { data: hoodDetail } = await sb
+      .from("neighbourhoods")
+      .select("radius_m")
+      .eq("id", hood.id)
+      .single();
+    const radiusM = hoodDetail?.radius_m || 500;
+
     const { data: venues, error: venueErr } = await sb
       .from("venues")
       .select(`
@@ -156,8 +164,8 @@ async function lookupSupabase(matchName, destCity, vibesStr) {
       return null;
     }
 
-    console.log(`Supabase HIT: ${hood.name} → ${restaurants.length}R ${bars.length}B ${cafes.length}C`);
-    return { restaurants, bars, cafes };
+    console.log(`Supabase HIT: ${hood.name} → ${restaurants.length}R ${bars.length}B ${cafes.length}C (radius: ${radiusM}m)`);
+    return { restaurants, bars, cafes, radius_m: radiusM };
 
   } catch (err) {
     console.error("Supabase lookup error:", err.message);
@@ -680,6 +688,7 @@ async function enrichMatchFast(match, destCity, vibesStr) {
       match.top3Bars        = sbVenues.bars;
       match.top3Cafes       = sbVenues.cafes;
       match._venueSource    = "supabase";
+      if (sbVenues.radius_m) match.radius_m = sbVenues.radius_m;
       return match;
     }
 
