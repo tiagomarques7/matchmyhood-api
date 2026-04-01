@@ -1488,6 +1488,304 @@ app.get("/api/photo", async (req, res) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// CITY GUIDES API
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/city-guide/:city — all hoods for a city with guide fields
+app.get("/api/city-guide/:city", async (req, res) => {
+  const sb = getSupabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const city = req.params.city.toLowerCase();
+  try {
+    const { data, error } = await sb
+      .from("neighbourhoods")
+      .select("id, name, slug, city, description, lat, lng, radius_m, guide_description, best_time, walking_radius, hill_warning")
+      .ilike("city", `%${city}%`)
+      .order("name");
+
+    if (error) throw error;
+    if (!data || data.length === 0) return res.status(404).json({ error: "City not found" });
+
+    const hoodIds = data.map(h => h.id);
+    const { data: venueCounts } = await sb
+      .from("venues")
+      .select("neighbourhood_id")
+      .in("neighbourhood_id", hoodIds);
+
+    const countMap = {};
+    (venueCounts || []).forEach(v => {
+      countMap[v.neighbourhood_id] = (countMap[v.neighbourhood_id] || 0) + 1;
+    });
+
+    const hoods = data.map(h => ({
+      ...h,
+      venue_count: countMap[h.id] || 0
+    }));
+
+    res.json({ city, hoods, total_venues: Object.values(countMap).reduce((a, b) => a + b, 0) });
+  } catch (err) {
+    console.error("city-guide error:", err.message);
+    res.status(500).json({ error: "Failed to load city guide" });
+  }
+});
+
+// GET /api/hood-guide/:slug — full hood data (venues, moments, walks, tips)
+app.get("/api/hood-guide/:slug", async (req, res) => {
+  const sb = getSupabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const slug = req.params.slug;
+  try {
+    const { data: hood, error: hoodErr } = await sb
+      .from("neighbourhoods")
+      .select("*")
+      .eq("slug", slug)
+      .single();
+
+    if (hoodErr || !hood) return res.status(404).json({ error: "Neighbourhood not found" });
+
+    const { data: venues } = await sb
+      .from("venues")
+      .select("id, name, type, description, price_level, lat, lng, website, photo_url, is_brunch, brunch_mood, opening_hours, reservation_tip, skip_reason, editorial_pick, editorial_note, is_subscriber_only")
+      .eq("neighbourhood_id", hood.id)
+      .order("editorial_pick", { ascending: false })
+      .order("name");
+
+    const venueIds = (venues || []).map(v => v.id);
+    const { data: vibes } = venueIds.length > 0
+      ? await sb.from("venue_vibes").select("venue_id, vibe_tag").in("venue_id", venueIds)
+      : { data: [] };
+
+    const vibeMap = {};
+    (vibes || []).forEach(v => {
+      if (!vibeMap[v.venue_id]) vibeMap[v.venue_id] = [];
+      vibeMap[v.venue_id].push(v.vibe_tag);
+    });
+
+    const venuesWithVibes = (venues || []).map(v => ({
+      ...v,
+      vibes: vibeMap[v.id] || []
+    }));
+
+    const { data: moments } = await sb
+      .from("moments")
+      .select("*")
+      .eq("neighbourhood_id", hood.id)
+      .eq("is_active", true)
+      .order("sort_order");
+
+    const { data: walks } = await sb
+      .from("hood_walks")
+      .select("id, slug, title, description, duration_minutes, best_time, difficulty, sort_order")
+      .eq("neighbourhood_id", hood.id)
+      .eq("is_active", true)
+      .order("sort_order");
+
+    const { data: tips } = await sb
+      .from("hood_tips")
+      .select("*")
+      .eq("neighbourhood_id", hood.id)
+      .eq("is_active", true)
+      .order("sort_order");
+
+    const restaurants = venuesWithVibes.filter(v => v.type === "restaurant");
+    const bars = venuesWithVibes.filter(v => v.type === "bar");
+    const cafes = venuesWithVibes.filter(v => v.type === "cafe");
+    const brunch = venuesWithVibes.filter(v => v.is_brunch);
+
+    res.json({
+      hood: {
+        id: hood.id, name: hood.name, slug: hood.slug, city: hood.city,
+        description: hood.description, guide_description: hood.guide_description,
+        lat: hood.lat, lng: hood.lng, radius_m: hood.radius_m,
+        best_time: hood.best_time, walking_radius: hood.walking_radius,
+        hill_warning: hood.hill_warning
+      },
+      venues: { restaurants, bars, cafes, brunch, total: venuesWithVibes.length },
+      moments: moments || [],
+      walks: walks || [],
+      tips: tips || []
+    });
+  } catch (err) {
+    console.error("hood-guide error:", err.message);
+    res.status(500).json({ error: "Failed to load hood guide" });
+  }
+});
+
+// GET /api/hood-walk/:walkId — walk details with all stops
+app.get("/api/hood-walk/:walkId", async (req, res) => {
+  const sb = getSupabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  try {
+    const { data: walk, error: walkErr } = await sb
+      .from("hood_walks")
+      .select("*")
+      .eq("id", req.params.walkId)
+      .single();
+
+    if (walkErr || !walk) return res.status(404).json({ error: "Walk not found" });
+
+    const { data: stops } = await sb
+      .from("walk_stops")
+      .select("*")
+      .eq("walk_id", walk.id)
+      .order("stop_order");
+
+    res.json({ walk, stops: stops || [] });
+  } catch (err) {
+    console.error("hood-walk error:", err.message);
+    res.status(500).json({ error: "Failed to load walk" });
+  }
+});
+
+// GET /api/this-week/:city — current week events
+app.get("/api/this-week/:city", async (req, res) => {
+  const sb = getSupabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const city = req.params.city.toLowerCase();
+  const eventType = req.query.type || null;
+
+  try {
+    let query = sb
+      .from("city_events")
+      .select("*")
+      .ilike("city", `%${city}%`)
+      .gte("date_start", new Date().toISOString().split("T")[0])
+      .lte("date_start", new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0])
+      .eq("is_active", true)
+      .order("date_start")
+      .order("time_start");
+
+    if (eventType) query = query.eq("event_type", eventType);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.json({ city, week_of: new Date().toISOString().split("T")[0], events: data || [] });
+  } catch (err) {
+    console.error("this-week error:", err.message);
+    res.status(500).json({ error: "Failed to load events" });
+  }
+});
+
+// POST /api/ask-mmh — AI assistant powered by Supabase data + Claude knowledge
+app.post("/api/ask-mmh", async (req, res) => {
+  const sb = getSupabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const { question, hood_slug } = req.body;
+  if (!question || !hood_slug) {
+    return res.status(400).json({ error: "question and hood_slug required" });
+  }
+
+  try {
+    const { data: hood } = await sb
+      .from("neighbourhoods")
+      .select("id, name, city, description, guide_description, best_time, walking_radius, hill_warning")
+      .eq("slug", hood_slug)
+      .single();
+
+    if (!hood) return res.status(404).json({ error: "Neighbourhood not found" });
+
+    const { data: venues } = await sb
+      .from("venues")
+      .select("name, type, description, price_level, website, is_brunch, brunch_mood, opening_hours, reservation_tip, skip_reason, editorial_pick, editorial_note")
+      .eq("neighbourhood_id", hood.id)
+      .order("editorial_pick", { ascending: false })
+      .order("name");
+
+    const { data: tips } = await sb
+      .from("hood_tips")
+      .select("tip_type, title, content")
+      .eq("neighbourhood_id", hood.id)
+      .eq("is_active", true);
+
+    const venueLines = (venues || []).map(v => {
+      const flags = [];
+      if (v.editorial_pick) flags.push("EDITORIAL PICK");
+      if (v.is_brunch) flags.push(`brunch:${v.brunch_mood || "yes"}`);
+      if (v.skip_reason) flags.push(`SKIP: ${v.skip_reason}`);
+      const price = v.price_level === 1 ? "\u20AC" : v.price_level === 2 ? "\u20AC\u20AC" : v.price_level === 3 ? "\u20AC\u20AC\u20AC" : "";
+      return `- ${v.name} (${v.type}) ${price} ${flags.join(" | ")}${v.description ? " \u2014 " + v.description : ""}${v.opening_hours ? " Hours: " + v.opening_hours : ""}${v.reservation_tip ? " Booking: " + v.reservation_tip : ""}`;
+    }).join("\n");
+
+    const tipLines = (tips || []).map(t => `- [${t.tip_type.toUpperCase()}] ${t.title || ""}: ${t.content}`).join("\n");
+
+    const systemPrompt = `You are the MatchMyHood city guide assistant for ${hood.name}, ${hood.city}. You speak as a knowledgeable local friend \u2014 opinionated, warm, and specific. Never generic. Always give concrete venue names, streets, prices, and practical tips.
+
+NEIGHBOURHOOD: ${hood.name}
+${hood.guide_description || hood.description || ""}
+Best time: ${hood.best_time || "N/A"}
+Walking radius: ${hood.walking_radius || "N/A"}
+Hill warning: ${hood.hill_warning || "None"}
+
+VENUES:
+${venueLines}
+
+LOCAL TIPS:
+${tipLines}
+
+Rules:
+- Always recommend from the venue list above. Never invent venues.
+- If a venue has SKIP marked, warn the user away from it.
+- Prioritise EDITORIAL PICK venues when they match the question.
+- Be honest about prices, queues, and tourist traps.
+- Keep answers concise \u2014 2-4 sentences max unless asked for detail.
+- If you don't know something specific (like today's hours), say so rather than guess.`;
+
+    const requestBody = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: question }],
+    });
+
+    const answer = await new Promise((resolve, reject) => {
+      const apiReq = https.request({
+        hostname: "api.anthropic.com",
+        path: "/v1/messages",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": process.env.CLAUDE_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "Content-Length": Buffer.byteLength(requestBody),
+        },
+      }, (apiRes) => {
+        let data = "";
+        apiRes.on("data", chunk => data += chunk);
+        apiRes.on("end", () => {
+          if (apiRes.statusCode !== 200) {
+            reject(new Error("Claude API error: " + apiRes.statusCode + " " + data));
+            return;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            resolve(parsed.content[0].text.trim());
+          } catch (e) {
+            reject(new Error("Failed to parse Claude response"));
+          }
+        });
+        apiRes.on("error", reject);
+      });
+      apiReq.on("error", reject);
+      apiReq.write(requestBody);
+      apiReq.end();
+    });
+
+    res.json({ hood: hood.name, question, answer });
+  } catch (err) {
+    console.error("ask-mmh error:", err.message);
+    res.status(500).json({ error: "Failed to get answer" });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 const PORT = process.env.PORT || 3000;
