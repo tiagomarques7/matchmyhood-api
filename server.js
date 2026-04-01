@@ -1501,7 +1501,7 @@ app.get("/api/city-guide/:city", async (req, res) => {
   try {
     const { data, error } = await sb
       .from("neighbourhoods")
-      .select("id, name, slug, city, description, lat, lng, radius_m, guide_description, best_time, walking_radius, hill_warning")
+      .select("id, name, slug, city, description, lat, lng, radius_m, guide_description, best_time, walking_radius, hill_warning, transit_info")
       .ilike("city", `%${city}%`)
       .order("name");
 
@@ -1601,7 +1601,7 @@ app.get("/api/hood-guide/:slug", async (req, res) => {
         description: hood.description, guide_description: hood.guide_description,
         lat: hood.lat, lng: hood.lng, radius_m: hood.radius_m,
         best_time: hood.best_time, walking_radius: hood.walking_radius,
-        hill_warning: hood.hill_warning
+        hill_warning: hood.hill_warning, transit_info: hood.transit_info
       },
       venues: { restaurants, bars, cafes, brunch, total: venuesWithVibes.length },
       moments: moments || [],
@@ -1685,7 +1685,7 @@ app.post("/api/ask-mmh", async (req, res) => {
   try {
     const { data: hood } = await sb
       .from("neighbourhoods")
-      .select("id, name, city, description, guide_description, best_time, walking_radius, hill_warning")
+      .select("id, name, city, description, guide_description, best_time, walking_radius, hill_warning, transit_info")
       .eq("slug", hood_slug)
       .single();
 
@@ -1722,6 +1722,7 @@ ${hood.guide_description || hood.description || ""}
 Best time: ${hood.best_time || "N/A"}
 Walking radius: ${hood.walking_radius || "N/A"}
 Hill warning: ${hood.hill_warning || "None"}
+Transit: ${hood.transit_info ? JSON.stringify(hood.transit_info) : "N/A"}
 
 VENUES:
 ${venueLines}
